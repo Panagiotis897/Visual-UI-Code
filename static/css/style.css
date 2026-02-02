@@ -23,6 +23,12 @@ body {
     overflow: hidden;
 }
 
+/* Disable transitions during resize */
+body.is-resizing * {
+    transition: none !important;
+    user-select: none;
+}
+
 .app-container {
     display: flex;
     flex-direction: column;
@@ -38,6 +44,7 @@ body {
     padding: 0 16px;
     border-bottom: 1px solid var(--border-color);
     justify-content: space-between;
+    flex-shrink: 0;
 }
 
 .logo {
@@ -77,15 +84,67 @@ body {
     display: flex;
     flex: 1;
     overflow: hidden;
+    position: relative;
+}
+
+/* Resizer */
+.resizer {
+    background-color: var(--border-color);
+    z-index: 10;
+    position: relative;
+    transition: background-color 0.2s;
+    flex-shrink: 0; /* Prevent resizer from shrinking */
+}
+
+.resizer:hover, .resizer.resizing {
+    background-color: var(--accent-color);
+}
+
+.resizer-horizontal {
+    width: 5px;
+    cursor: col-resize;
+    height: 100%;
+}
+
+.resizer-vertical {
+    height: 5px;
+    cursor: row-resize;
+    width: 100%;
+}
+
+/* Resize Handle Icon */
+.resizer:hover::after, .resizer.resizing::after {
+    font-family: "Font Awesome 5 Free";
+    font-weight: 900;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    background: var(--accent-color);
+    padding: 4px;
+    border-radius: 50%;
+    font-size: 10px;
+    pointer-events: none;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+    z-index: 20;
+}
+
+.resizer-horizontal:hover::after, .resizer-horizontal.resizing::after {
+    content: '\f337'; /* arrows-alt-h */
+}
+
+.resizer-vertical:hover::after, .resizer-vertical.resizing::after {
+    content: '\f338'; /* arrows-alt-v */
 }
 
 /* Sidebar */
 .sidebar {
-    width: 250px;
+    width: 250px; /* Default, overridden by inline styles */
     background-color: var(--bg-panel);
-    border-right: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
+    min-width: 150px;
 }
 
 .panel-header {
@@ -116,10 +175,19 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    user-select: none;
 }
 
 .category-title:hover {
     background-color: var(--hover-color);
+}
+
+.category-title .fa-chevron-down {
+    transition: transform 0.2s;
+}
+
+.category.collapsed .category-title .fa-chevron-down {
+    transform: rotate(-90deg);
 }
 
 .category-items {
@@ -128,6 +196,12 @@ body {
     gap: 8px;
     padding: 8px 16px;
     background-color: #1e1e1e;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, padding 0.3s ease;
+}
+
+.category.collapsed .category-items {
+    display: none;
 }
 
 .draggable-item {
@@ -182,12 +256,11 @@ body {
 
 /* Center Code Panel */
 .code-panel {
-    flex: 1;
+    flex: 1; /* Default flex */
     display: flex;
     flex-direction: column;
     background-color: #1e1e1e;
-    border-right: 1px solid var(--border-color);
-    min-width: 300px;
+    min-width: 200px;
 }
 
 .code-tabs {
@@ -209,9 +282,12 @@ body {
 }
 
 .editor-content {
-    flex: 2;
+    flex: 1; /* Allows resizing via flex-grow/shrink if needed, but we control height via JS for terminal split */
     position: relative;
     overflow: hidden;
+    height: 70%; /* Initial split */
+    display: flex;
+    flex-direction: column;
 }
 
 #code-editor {
@@ -230,12 +306,13 @@ body {
 
 /* Terminal */
 .terminal-container {
-    flex: 1;
-    border-top: 1px solid var(--border-color);
+    flex: 1; /* Takes remaining space */
+    border-top: none; /* Handled by resizer */
     display: flex;
     flex-direction: column;
     background-color: #1e1e1e;
-    max-height: 30%;
+    height: 30%; /* Initial split */
+    min-height: 50px;
 }
 
 .terminal-header {
@@ -295,7 +372,7 @@ body {
     background-color: #333;
     display: flex;
     flex-direction: column;
-    min-width: 300px;
+    min-width: 200px;
 }
 
 .canvas-container {
@@ -312,7 +389,7 @@ body {
 .preview-canvas {
     background-color: white;
     box-shadow: 0 0 20px rgba(0,0,0,0.5);
-    transition: all 0.3s ease;
+    transition: width 0.3s ease, height 0.3s ease; /* Only animate specific properties */
     overflow: auto;
     position: relative;
     color: black; /* Reset text color for preview */

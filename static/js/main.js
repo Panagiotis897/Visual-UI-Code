@@ -9,9 +9,232 @@ const App = {
         this.setupEventListeners();
         this.setupTerminal();
         this.loadProject();
+        this.initMonaco();
+        this.setupResizers();
+        this.loadLayout();
         // Initial save
         this.saveState(); 
         this.updateCode();
+    },
+
+    toggleCategory: function(header) {
+        const category = header.parentElement;
+        category.classList.toggle('collapsed');
+    },
+
+    setupResizers: function() {
+        const createResizer = (resizerId, direction, onResize, onStop) => {
+            const resizer = document.getElementById(resizerId);
+            if (!resizer) return;
+
+            resizer.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                document.body.style.cursor = direction === 'horizontal' ? 'col-resize' : 'row-resize';
+                resizer.classList.add('resizing');
+                document.body.classList.add('is-resizing');
+                
+                const startX = e.clientX;
+                const startY = e.clientY;
+                
+                const onMouseMove = (moveEvent) => {
+                    onResize(moveEvent.clientX - startX, moveEvent.clientY - startY, moveEvent);
+                };
+                
+                const onMouseUp = () => {
+                    document.body.style.cursor = '';
+                    resizer.classList.remove('resizing');
+                    document.body.classList.remove('is-resizing');
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    if (onStop) onStop();
+                };
+                
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+        };
+
+        // Sidebar Resizer
+        const sidebar = document.getElementById('component-sidebar');
+        createResizer('resizer-sidebar', 'horizontal', (dx, dy, e) => {
+            const newWidth = e.clientX; 
+            if (newWidth > 150 && newWidth < 500) {
+                sidebar.style.width = newWidth + 'px';
+            }
+        }, () => this.saveLayout());
+
+        // Code/Preview Resizer
+        const codePanel = document.getElementById('code-editor-panel');
+        const previewPanel = document.getElementById('preview-panel');
+        const workspace = document.querySelector('.workspace');
+        
+        createResizer('resizer-code', 'horizontal', (dx, dy, e) => {
+            const sidebarWidth = sidebar.getBoundingClientRect().width;
+            const resizerWidth = 5;
+            const availableWidth = workspace.clientWidth - sidebarWidth - resizerWidth;
+            
+            // Calculate new width based on mouse position relative to workspace start
+            // Mouse X - Sidebar Width
+            let newCodeWidth = e.clientX - sidebarWidth;
+            
+            // Constraints
+            if (newCodeWidth < 100) newCodeWidth = 100;
+            if (newCodeWidth > availableWidth - 100) newCodeWidth = availableWidth - 100;
+            
+            const codePercent = (newCodeWidth / availableWidth) * 100;
+            
+            codePanel.style.flex = `0 0 ${codePercent}%`;
+            previewPanel.style.flex = `0 0 ${100 - codePercent}%`;
+        }, () => this.saveLayout());
+
+        // Terminal Resizer
+        const editorContent = document.getElementById('editor-content-wrapper');
+        const terminal = document.getElementById('terminal-container');
+        
+        createResizer('resizer-terminal', 'vertical', (dx, dy, e) => {
+            const codePanelRect = codePanel.getBoundingClientRect();
+            const panelTop = codePanelRect.top;
+            const panelHeight = codePanelRect.height;
+            
+            let newEditorHeight = e.clientY - panelTop;
+            
+            // Constraints
+            if (newEditorHeight < 50) newEditorHeight = 50;
+            if (newEditorHeight > panelHeight - 30) newEditorHeight = panelHeight - 30;
+            
+            const editorPercent = (newEditorHeight / panelHeight) * 100;
+            
+            editorContent.style.height = `${editorPercent}%`;
+            terminal.style.height = `${100 - editorPercent}%`;
+        }, () => this.saveLayout());
+    },
+
+    saveLayout: function() {
+        const layout = {
+            sidebarWidth: document.getElementById('component-sidebar').style.width,
+            codePanelFlex: document.getElementById('code-editor-panel').style.flex,
+            previewPanelFlex: document.getElementById('preview-panel').style.flex,
+            editorHeight: document.getElementById('editor-content-wrapper').style.height,
+            terminalHeight: document.getElementById('terminal-container').style.height
+        };
+        localStorage.setItem('vuc_layout', JSON.stringify(layout));
+    },
+
+    loadLayout: function() {
+        try {
+            const layout = JSON.parse(localStorage.getItem('vuc_layout'));
+            if (layout) {
+                if (layout.sidebarWidth) document.getElementById('component-sidebar').style.width = layout.sidebarWidth;
+                if (layout.codePanelFlex) document.getElementById('code-editor-panel').style.flex = layout.codePanelFlex;
+                if (layout.previewPanelFlex) document.getElementById('preview-panel').style.flex = layout.previewPanelFlex;
+                if (layout.editorHeight) document.getElementById('editor-content-wrapper').style.height = layout.editorHeight;
+                if (layout.terminalHeight) document.getElementById('terminal-container').style.height = layout.terminalHeight;
+            }
+        } catch(e) { console.error('Error loading layout', e); }
+    },
+
+    initMonaco: function() {
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            window.monacoEditor = monaco.editor.create(document.getElementById('monaco-editor'), {
+                value: '',
+                language: 'html',
+                theme: 'vs-dark',
+                automaticLayout: true,
+                minimap: { enabled: false }
+            });
+
+            // Bi-directional sync
+            window.monacoEditor.onDidChangeModelContent(() => {
+                App.syncCodeToCanvas();
+            });
+        });
+    },
+
+    switchSidebar: function(tab) {
+        // Toggle active button
+        const buttons = document.querySelectorAll('.sidebar-tabs button');
+        buttons.forEach(b => {
+             if (b.dataset.tab === tab) b.classList.add('active');
+             else b.classList.remove('active');
+        });
+        
+        // Toggle content
+        document.getElementById('sidebar-content-components').style.display = tab === 'components' ? 'flex' : 'none';
+        document.getElementById('sidebar-content-assets').style.display = tab === 'assets' ? 'flex' : 'none';
+        
+        if (tab === 'assets') this.loadAssets();
+    },
+
+    loadAssets: async function() {
+        const list = document.getElementById('asset-list');
+        list.innerHTML = '<div style="color:#888; text-align:center; grid-column:span 2;">Loading...</div>';
+        
+        try {
+            const res = await fetch('/api/assets');
+            const files = await res.json();
+            
+            list.innerHTML = '';
+            if (files.length === 0) {
+                list.innerHTML = '<div style="color:#888; text-align:center; grid-column:span 2;">No assets found</div>';
+                return;
+            }
+            
+            files.forEach(f => {
+                const item = document.createElement('div');
+                item.className = 'asset-item';
+                item.style.border = '1px solid #3e3e42';
+                item.style.borderRadius = '4px';
+                item.style.padding = '5px';
+                item.style.cursor = 'pointer';
+                item.style.background = '#252526';
+                item.innerHTML = `
+                    <div style="height:60px; background:url('${f.url}') center/contain no-repeat; margin-bottom:5px;"></div>
+                    <div style="font-size:10px; color:#ccc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${f.name}</div>
+                `;
+                item.onclick = () => {
+                    // If an image is selected, update it
+                    const selected = Builder.selectedElement;
+                    if (selected && selected.tagName === 'IMG') {
+                        selected.src = f.url;
+                        App.saveState();
+                        App.updatePropertyInspector(selected);
+                    } else {
+                        // Or copy URL to clipboard
+                        navigator.clipboard.writeText(f.url);
+                        alert('Asset URL copied to clipboard!');
+                    }
+                };
+                list.appendChild(item);
+            });
+            
+            // Handle upload
+            const uploadInput = document.getElementById('asset-upload');
+            uploadInput.onchange = async (e) => {
+                if (e.target.files.length > 0) {
+                    const formData = new FormData();
+                    formData.append('file', e.target.files[0]);
+                    
+                    try {
+                        const res = await fetch('/api/assets', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            App.loadAssets(); // Reload list
+                        } else {
+                            alert('Upload failed: ' + data.error);
+                        }
+                    } catch (err) {
+                        alert('Upload error: ' + err.message);
+                    }
+                }
+            };
+            
+        } catch (err) {
+            list.innerHTML = `<div style="color:red; text-align:center; grid-column:span 2;">Error: ${err.message}</div>`;
+        }
     },
 
     loadProject: function() {
@@ -31,6 +254,23 @@ const App = {
     },
 
     setupEventListeners: function() {
+        // Sidebar Tabs
+        document.querySelectorAll('.sidebar-tabs button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const target = e.target.closest('button');
+                if (target && target.dataset.tab) {
+                    this.switchSidebar(target.dataset.tab);
+                }
+            });
+        });
+
+        // Category Toggles
+        document.querySelectorAll('.category-title').forEach(title => {
+            title.addEventListener('click', (e) => {
+                this.toggleCategory(e.currentTarget);
+            });
+        });
+
         // Toolbar
         document.getElementById('btn-undo').addEventListener('click', () => this.undo());
         document.getElementById('btn-redo').addEventListener('click', () => this.redo());
@@ -39,6 +279,42 @@ const App = {
         
         // Code Editor Live Sync
         document.getElementById('code-editor').addEventListener('input', () => this.syncCodeToCanvas());
+
+        // Keyboard Shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Check if user is typing in an input/textarea (except our main editor if it wasn't Monaco)
+            if (e.target.tagName === 'INPUT' || (e.target.tagName === 'TEXTAREA' && e.target.id !== 'code-editor')) {
+                return;
+            }
+            
+            // Undo: Ctrl+Z
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault();
+                this.undo();
+            }
+            // Redo: Ctrl+Y or Ctrl+Shift+Z
+            if (((e.ctrlKey || e.metaKey) && e.key === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+                e.preventDefault();
+                this.redo();
+            }
+            // Save: Ctrl+S
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                this.saveProject();
+            }
+            // Delete: Del or Backspace (only if element selected and not editing text)
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                 // Make sure we aren't in code editor
+                 if (document.activeElement === document.body || document.activeElement.classList.contains('preview-canvas')) {
+                     if (Builder.selectedElement) {
+                         e.preventDefault();
+                         Builder.selectedElement.remove();
+                         Builder.deselectElement();
+                         this.saveState();
+                     }
+                 }
+            }
+        });
 
         // View modes
         document.getElementById('btn-desktop').addEventListener('click', () => this.setViewMode('desktop'));
@@ -79,7 +355,7 @@ const App = {
             container.appendChild(group);
         };
 
-        const createInput = (label, value, onChange, type='text') => {
+        const createInput = (label, value, onChange, type='text', options=[]) => {
             const wrapper = document.createElement('div');
             wrapper.style.marginBottom = '8px';
             
@@ -87,10 +363,64 @@ const App = {
             lbl.className = 'prop-label';
             lbl.innerText = label;
             
-            const inp = document.createElement('input');
-            inp.className = 'prop-input';
-            inp.type = type;
-            inp.value = value || '';
+            let inp;
+            if (type === 'select') {
+                inp = document.createElement('select');
+                inp.className = 'prop-input';
+                options.forEach(opt => {
+                    const o = document.createElement('option');
+                    o.value = opt;
+                    o.innerText = opt;
+                    if (opt === value) o.selected = true;
+                    inp.appendChild(o);
+                });
+            } else if (type === 'color') {
+                // Color input wrapper
+                const colorWrap = document.createElement('div');
+                colorWrap.style.display = 'flex';
+                
+                inp = document.createElement('input');
+                inp.className = 'prop-input';
+                inp.type = 'text';
+                inp.value = value || '';
+                inp.style.flex = '1';
+                
+                const picker = document.createElement('input');
+                picker.type = 'color';
+                picker.value = value && value.startsWith('#') ? value : '#000000';
+                picker.style.width = '30px';
+                picker.style.height = '30px';
+                picker.style.border = 'none';
+                picker.style.padding = '0';
+                picker.style.marginLeft = '5px';
+                picker.style.cursor = 'pointer';
+                
+                picker.oninput = (e) => {
+                    inp.value = e.target.value;
+                    inp.dispatchEvent(new Event('input'));
+                };
+                
+                colorWrap.appendChild(inp);
+                colorWrap.appendChild(picker);
+                
+                wrapper.appendChild(lbl);
+                wrapper.appendChild(colorWrap);
+                
+                const update = (e) => {
+                    onChange(e.target.value);
+                    this.updateCode();
+                };
+                inp.onchange = (e) => { update(e); this.saveState(); };
+                inp.oninput = update;
+                
+                return wrapper;
+
+            } else {
+                inp = document.createElement('input');
+                inp.className = 'prop-input';
+                inp.type = type;
+                inp.value = value || '';
+            }
             
             const update = (e) => {
                 onChange(e.target.value);
@@ -136,15 +466,31 @@ const App = {
             createInput('Height', s.height, (v) => s.height = v),
             createInput('Padding', s.padding, (v) => s.padding = v),
             createInput('Margin', s.margin, (v) => s.margin = v),
-            createInput('Display', s.display, (v) => s.display = v)
+            createInput('Display', s.display, (v) => s.display = v, 'select', ['block', 'inline-block', 'flex', 'grid', 'none']),
+        ]);
+
+        // Flexbox controls (only if display is flex)
+        if (s.display === 'flex') {
+            createGroup('Flexbox', [
+                createInput('Direction', s.flexDirection, (v) => s.flexDirection = v, 'select', ['row', 'column', 'row-reverse', 'column-reverse']),
+                createInput('Justify', s.justifyContent, (v) => s.justifyContent = v, 'select', ['flex-start', 'center', 'flex-end', 'space-between', 'space-around']),
+                createInput('Align', s.alignItems, (v) => s.alignItems = v, 'select', ['stretch', 'flex-start', 'center', 'flex-end', 'baseline']),
+                createInput('Gap', s.gap, (v) => s.gap = v)
+            ]);
+        }
+
+        createGroup('Typography', [
+            createInput('Color', s.color, (v) => s.color = v, 'color'),
+            createInput('Font Size', s.fontSize, (v) => s.fontSize = v),
+            createInput('Font Weight', s.fontWeight, (v) => s.fontWeight = v, 'select', ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900']),
+            createInput('Text Align', s.textAlign, (v) => s.textAlign = v, 'select', ['left', 'center', 'right', 'justify'])
         ]);
 
         createGroup('Appearance', [
-            createInput('Background', s.backgroundColor, (v) => s.backgroundColor = v),
-            createInput('Color', s.color, (v) => s.color = v),
-            createInput('Font Size', s.fontSize, (v) => s.fontSize = v),
+            createInput('Background', s.backgroundColor, (v) => s.backgroundColor = v, 'color'),
             createInput('Border', s.border, (v) => s.border = v),
-            createInput('Border Radius', s.borderRadius, (v) => s.borderRadius = v)
+            createInput('Border Radius', s.borderRadius, (v) => s.borderRadius = v),
+            createInput('Box Shadow', s.boxShadow, (v) => s.boxShadow = v)
         ]);
     },
 
@@ -154,8 +500,14 @@ const App = {
     },
 
     syncCodeToCanvas: function() {
-        const editor = document.getElementById('code-editor');
-        const code = editor.value;
+        // Use Monaco if available
+        let code;
+        if (window.monacoEditor) {
+            code = window.monacoEditor.getValue();
+        } else {
+            code = document.getElementById('code-editor').value;
+        }
+
         const activeTab = document.querySelector('.code-tabs button.active').dataset.lang;
         
         if (activeTab === 'html') {
@@ -167,22 +519,19 @@ const App = {
                 bodyContent = doc.body.innerHTML;
             }
             
-            // Only update if content changed significantly (simple check)
-            // But we need to be careful not to lose selection/focus if we were re-rendering,
-            // though here we are updating the preview canvas, not the editor itself.
-            // The editor is where the user is typing.
-            
             Builder.loadHTML(bodyContent);
             
-            // Note: We don't call saveState() here on every keystroke to avoid flooding history
-            // We can debounce it or let the user manually save/blur?
-            // For now, let's debounce save.
+            // Debounce save
             this.saveStateDebounced();
         }
     },
 
     updateCodeView: function(lang) {
-        const editor = document.getElementById('code-editor');
+        if (!window.monacoEditor) return;
+        
+        const model = window.monacoEditor.getModel();
+        monaco.editor.setModelLanguage(model, lang === 'js' ? 'javascript' : lang);
+
         if (lang === 'html') {
             let html = Builder.getHTML();
             let fullHtml = `<!DOCTYPE html>
@@ -196,21 +545,31 @@ const App = {
 ${html}
 </body>
 </html>`;
-            editor.value = this.formatHTML(fullHtml);
+            window.monacoEditor.setValue(this.formatHTML(fullHtml));
         } else if (lang === 'css') {
-            editor.value = "/* Styles are currently inline in HTML. \n   Export to extract to CSS. */";
+            window.monacoEditor.setValue("/* Styles are currently inline in HTML. \n   Export to extract to CSS. */");
         } else if (lang === 'js') {
-            editor.value = "// Custom JavaScript";
+            window.monacoEditor.setValue("// Custom JavaScript");
         }
     },
 
     formatHTML: function(html) {
         let formatted = '';
         let pad = 0;
+        
+        // Fix: Strip leading/trailing brackets if present to avoid duplication
+        // The split(/>\s*</) method assumes we are splitting 'between' tags,
+        // so it re-adds brackets to everything. 
+        // We need to ensure the first and last tags don't have their outer brackets 
+        // before splitting, otherwise they get double brackets.
+        html = html.trim();
+        if (html.startsWith('<')) html = html.substring(1);
+        if (html.endsWith('>')) html = html.substring(0, html.length - 1);
+        
         html.split(/>\s*</).forEach(function(node) {
             if (node.match( /^\/\w/ )) pad -= 1;
             formatted += new Array(pad + 1).join('  ') + '<' + node + '>\r\n';
-            if (node.match( /^<?\w[^>]*[^\/]$/ ) && !node.startsWith('input') && !node.startsWith('img') && !node.startsWith('br')) pad += 1;
+            if (node.match( /^<?\w[^>]*[^\/]$/ ) && !node.startsWith('input') && !node.startsWith('img') && !node.startsWith('br') && !node.startsWith('!DOCTYPE')) pad += 1;
         });
         return formatted.trim();
     },

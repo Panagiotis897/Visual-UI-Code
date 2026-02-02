@@ -1,14 +1,55 @@
 import os
 import subprocess
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 CORS(app)
 
+# Asset Configuration
+ASSET_FOLDER = os.path.join(os.getcwd(), 'static', 'assets')
+os.makedirs(ASSET_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = ASSET_FOLDER
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/api/assets', methods=['GET'])
+def list_assets():
+    try:
+        files = []
+        for f in os.listdir(app.config['UPLOAD_FOLDER']):
+            if allowed_file(f):
+                files.append({
+                    'name': f,
+                    'url': f'/static/assets/{f}'
+                })
+        return jsonify(files)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/assets', methods=['POST'])
+def upload_asset():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        return jsonify({
+            'success': True,
+            'name': filename,
+            'url': f'/static/assets/{filename}'
+        })
+    return jsonify({'error': 'File type not allowed'}), 400
 
 @app.route('/api/run_command', methods=['POST'])
 def run_command():
