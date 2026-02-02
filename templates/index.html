@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual UI Code</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Touch DnD Polyfill -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mobile-drag-drop@2.3.0-rc.2/default.css">
+    <script src="https://cdn.jsdelivr.net/npm/mobile-drag-drop@2.3.0-rc.2/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mobile-drag-drop@2.3.0-rc.2/scroll-behaviour.min.js"></script>
+    <script>
+        MobileDragDrop.polyfill({
+            dragImageTranslateOverride: MobileDragDrop.scrollBehaviourDragImageTranslateOverride
+        });
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header / Toolbar -->
+        <header class="app-header">
+            <div class="logo">
+                <i class="fas fa-code"></i> Visual UI Code
+            </div>
+            <div class="toolbar">
+                <button id="btn-undo" title="Undo"><i class="fas fa-undo"></i></button>
+                <button id="btn-redo" title="Redo"><i class="fas fa-redo"></i></button>
+                <span class="separator"></span>
+                <button id="btn-desktop" title="Desktop View"><i class="fas fa-desktop"></i></button>
+                <button id="btn-tablet" title="Tablet View"><i class="fas fa-tablet-alt"></i></button>
+                <button id="btn-mobile" title="Mobile View"><i class="fas fa-mobile-alt"></i></button>
+                <span class="separator"></span>
+                <button id="btn-save" title="Save"><i class="fas fa-save"></i> Save</button>
+                <button id="btn-export" title="Export"><i class="fas fa-file-export"></i> Export</button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="workspace">
+            <!-- Left Panel: Component Sidebar -->
+            <aside class="sidebar" id="component-sidebar">
+                <div class="panel-header">Components</div>
+                <div class="component-categories">
+                    <div class="category">
+                        <div class="category-title"><i class="fas fa-box"></i> Containers <i class="fas fa-chevron-down"></i></div>
+                        <div class="category-items">
+                            <div class="draggable-item" draggable="true" data-type="div"><i class="far fa-square"></i> Div</div>
+                            <div class="draggable-item" draggable="true" data-type="section"><i class="fas fa-columns"></i> Section</div>
+                            <div class="draggable-item" draggable="true" data-type="container"><i class="fas fa-box-open"></i> Container</div>
+                        </div>
+                    </div>
+                    <div class="category">
+                        <div class="category-title"><i class="fas fa-i-cursor"></i> Inputs <i class="fas fa-chevron-down"></i></div>
+                        <div class="category-items">
+                            <div class="draggable-item" draggable="true" data-type="button"><i class="fas fa-toggle-on"></i> Button</div>
+                            <div class="draggable-item" draggable="true" data-type="input"><i class="fas fa-font"></i> Input</div>
+                            <div class="draggable-item" draggable="true" data-type="textarea"><i class="fas fa-paragraph"></i> Text Area</div>
+                            <div class="draggable-item" draggable="true" data-type="checkbox"><i class="far fa-check-square"></i> Checkbox</div>
+                        </div>
+                    </div>
+                    <div class="category">
+                        <div class="category-title"><i class="fas fa-image"></i> Media <i class="fas fa-chevron-down"></i></div>
+                        <div class="category-items">
+                            <div class="draggable-item" draggable="true" data-type="image"><i class="far fa-image"></i> Image</div>
+                            <div class="draggable-item" draggable="true" data-type="video"><i class="fas fa-video"></i> Video</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel-header mt-auto">Properties</div>
+                <div id="property-inspector" class="property-inspector">
+                    <div class="no-selection">Select an element to edit properties</div>
+                    <!-- Properties will be injected here via JS -->
+                </div>
+            </aside>
+
+            <!-- Center Panel: Code Editor -->
+            <section class="code-panel" id="code-editor-panel">
+                <div class="panel-header">
+                    <span>Code Editor</span>
+                    <div class="code-tabs">
+                        <button class="active" data-lang="html">HTML</button>
+                        <button data-lang="css">CSS</button>
+                        <button data-lang="js">JS</button>
+                    </div>
+                </div>
+                <div class="editor-content">
+                    <textarea id="code-editor" spellcheck="false"></textarea>
+                </div>
+                
+                <!-- Terminal (Bottom of Center Panel) -->
+                <div class="terminal-container">
+                    <div class="panel-header terminal-header">
+                        <span>Terminal</span>
+                        <button id="btn-run-cmd"><i class="fas fa-play"></i> Run</button>
+                    </div>
+                    <div class="terminal-output" id="terminal-output">
+                        <div class="terminal-line">Visual UI Code Terminal [v1.0]</div>
+                        <div class="terminal-line">Type a command and press Enter...</div>
+                    </div>
+                    <div class="terminal-input-wrapper">
+                        <span class="prompt">$</span>
+                        <input type="text" id="terminal-input" placeholder="Enter command...">
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Live Preview -->
+            <section class="preview-panel" id="preview-panel">
+                <div class="panel-header">
+                    Live Preview
+                    <span id="preview-size-label">Desktop</span>
+                </div>
+                <div class="canvas-container">
+                    <div id="preview-canvas" class="preview-canvas desktop">
+                        <!-- Elements will be dropped here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/components.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/builder.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
