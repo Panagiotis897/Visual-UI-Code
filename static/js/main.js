@@ -3,6 +3,7 @@ const App = {
     historyIndex: -1,
     maxHistory: 20,
     saveTimeout: null,
+    isUpdatingCode: false,
 
     init: function() {
         Builder.init();
@@ -133,6 +134,27 @@ const App = {
         } catch(e) { console.error('Error loading layout', e); }
     },
 
+    resetLayout: function() {
+        if (confirm('Are you sure you want to reset the layout to default settings?')) {
+            // Clear saved layout
+            localStorage.removeItem('vuc_layout');
+            
+            // Reset Sidebar
+            document.getElementById('component-sidebar').style.width = '';
+            
+            // Reset Code/Preview Split
+            document.getElementById('code-editor-panel').style.flex = '';
+            document.getElementById('preview-panel').style.flex = '';
+            
+            // Reset Editor/Terminal Split
+            document.getElementById('editor-content-wrapper').style.height = '';
+            document.getElementById('terminal-container').style.height = '';
+            
+            // Feedback
+            alert('Layout has been reset to default configuration.');
+        }
+    },
+
     initMonaco: function() {
         require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
         require(['vs/editor/editor.main'], function() {
@@ -146,12 +168,44 @@ const App = {
 
             // Bi-directional sync
             window.monacoEditor.onDidChangeModelContent(() => {
+                if (App.isUpdatingCode) return;
                 App.syncCodeToCanvas();
             });
         });
     },
 
+    showSyncFeedback: function() {
+        let feedback = document.getElementById('sync-feedback');
+        if (!feedback) {
+            feedback = document.createElement('div');
+            feedback.id = 'sync-feedback';
+            feedback.style.position = 'fixed';
+            feedback.style.bottom = '20px';
+            feedback.style.right = '20px';
+            feedback.style.background = '#007acc';
+            feedback.style.color = 'white';
+            feedback.style.padding = '8px 12px';
+            feedback.style.borderRadius = '4px';
+            feedback.style.fontSize = '12px';
+            feedback.style.opacity = '0';
+            feedback.style.transition = 'opacity 0.3s';
+            feedback.style.zIndex = '10000';
+            feedback.style.pointerEvents = 'none';
+            feedback.innerText = 'Synced';
+            document.body.appendChild(feedback);
+        }
+        
+        feedback.style.opacity = '1';
+        clearTimeout(this.feedbackTimeout);
+        this.feedbackTimeout = setTimeout(() => {
+            feedback.style.opacity = '0';
+        }, 1000);
+    },
+
     switchSidebar: function(tab) {
+        // Handle 'components' legacy call
+        if (tab === 'components') tab = 'html';
+
         // Toggle active button
         const buttons = document.querySelectorAll('.sidebar-tabs button');
         buttons.forEach(b => {
@@ -159,9 +213,18 @@ const App = {
              else b.classList.remove('active');
         });
         
-        // Toggle content
-        document.getElementById('sidebar-content-components').style.display = tab === 'components' ? 'flex' : 'none';
-        document.getElementById('sidebar-content-assets').style.display = tab === 'assets' ? 'flex' : 'none';
+        // Hide all content sections
+        const contents = ['html', 'css', 'js', 'assets'];
+        contents.forEach(t => {
+            const el = document.getElementById('sidebar-content-' + t);
+            if (el) el.style.display = 'none';
+        });
+
+        // Show active content
+        const activeEl = document.getElementById('sidebar-content-' + tab);
+        if (activeEl) {
+            activeEl.style.display = 'flex';
+        }
         
         if (tab === 'assets') this.loadAssets();
     },
@@ -172,6 +235,8 @@ const App = {
         
         try {
             const res = await fetch('/api/assets');
+            if (!res.ok) throw new Error('Failed to fetch assets');
+            
             const files = await res.json();
             
             list.innerHTML = '';
@@ -208,31 +273,8 @@ const App = {
                 list.appendChild(item);
             });
             
-            // Handle upload
-            const uploadInput = document.getElementById('asset-upload');
-            uploadInput.onchange = async (e) => {
-                if (e.target.files.length > 0) {
-                    const formData = new FormData();
-                    formData.append('file', e.target.files[0]);
-                    
-                    try {
-                        const res = await fetch('/api/assets', {
-                            method: 'POST',
-                            body: formData
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            App.loadAssets(); // Reload list
-                        } else {
-                            alert('Upload failed: ' + data.error);
-                        }
-                    } catch (err) {
-                        alert('Upload error: ' + err.message);
-                    }
-                }
-            };
-            
         } catch (err) {
+            console.error('Asset load error:', err);
             list.innerHTML = `<div style="color:red; text-align:center; grid-column:span 2;">Error: ${err.message}</div>`;
         }
     },
@@ -280,6 +322,36 @@ const App = {
         // Code Editor Live Sync
         document.getElementById('code-editor').addEventListener('input', () => this.syncCodeToCanvas());
 
+        // Asset Upload
+        const uploadInput = document.getElementById('asset-upload');
+        if (uploadInput) {
+            uploadInput.addEventListener('change', async (e) => {
+                if (e.target.files.length > 0) {
+                    const formData = new FormData();
+                    formData.append('file', e.target.files[0]);
+                    
+                    try {
+                        const res = await fetch('/api/assets', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            App.loadAssets(); // Reload list
+                            // Optional: Show success feedback
+                        } else {
+                            alert('Upload failed: ' + (data.error || 'Unknown error'));
+                        }
+                    } catch (err) {
+                        console.error('Upload error:', err);
+                        alert('Upload error: ' + err.message);
+                    } finally {
+                        e.target.value = ''; // Reset input to allow re-uploading same file
+                    }
+                }
+            });
+        }
+
         // Keyboard Shortcuts
         document.addEventListener('keydown', (e) => {
             // Check if user is typing in an input/textarea (except our main editor if it wasn't Monaco)
@@ -320,6 +392,7 @@ const App = {
         document.getElementById('btn-desktop').addEventListener('click', () => this.setViewMode('desktop'));
         document.getElementById('btn-tablet').addEventListener('click', () => this.setViewMode('tablet'));
         document.getElementById('btn-mobile').addEventListener('click', () => this.setViewMode('mobile'));
+        document.getElementById('btn-reset-layout').addEventListener('click', () => this.resetLayout());
 
         // Code Tabs
         const tabs = document.querySelectorAll('.code-tabs button');
@@ -545,7 +618,22 @@ const App = {
 ${html}
 </body>
 </html>`;
-            window.monacoEditor.setValue(this.formatHTML(fullHtml));
+            
+            // Set flag to prevent loop
+            this.isUpdatingCode = true;
+            try {
+                const formatted = this.formatHTML(fullHtml);
+                const currentVal = window.monacoEditor.getValue();
+                
+                // Only update if changed to avoid cursor jumping if possible (though setValue resets cursor usually)
+                if (formatted !== currentVal) {
+                    window.monacoEditor.setValue(formatted);
+                    this.showSyncFeedback();
+                }
+            } finally {
+                this.isUpdatingCode = false;
+            }
+
         } else if (lang === 'css') {
             window.monacoEditor.setValue("/* Styles are currently inline in HTML. \n   Export to extract to CSS. */");
         } else if (lang === 'js') {

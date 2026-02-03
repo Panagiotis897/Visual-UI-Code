@@ -1,64 +1,99 @@
 # Visual UI Code
 
-A comprehensive web-based visual UI coding application that provides an integrated development environment with drag-and-drop capabilities, real-time code generation, and Python backend integration.
+![Status](https://img.shields.io/badge/Status-Active-success)
+![Version](https://img.shields.io/badge/Version-1.0.0-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-## Features
+A comprehensive, web-based integrated development environment (IDE) for visual UI building. Visual UI Code bridges the gap between drag-and-drop design and code-level control, featuring a 3-panel layout with real-time bi-directional synchronization, a responsive preview, and a built-in terminal.
 
-- **Visual Interface Builder**: Drag-and-drop components from the sidebar to the canvas.
-- **Three-Panel Layout**: 
-  - **Sidebar**: Component library and Property Inspector.
-  - **Center**: Code Editor (HTML/CSS/JS) and Terminal.
-  - **Right**: Live Preview Canvas with responsive modes (Desktop, Tablet, Mobile).
-- **Real-time Code Generation**: Changes in the visual builder are immediately reflected in the code editor.
-- **Property Inspector**: Edit properties (Layout, Typography, Colors, etc.) of selected elements.
-- **Terminal Integration**: Run shell commands directly from the interface (powered by Python/Flask).
-- **Save & Export**: Save projects to local storage or export as a standalone HTML file.
-- **Undo/Redo**: Full history support for design changes.
+---
 
-## Installation
+## 🚀 Features
 
-1.  **Prerequisites**:
-    *   Python 3.7+
-    *   pip (Python package manager)
+### **Visual Builder & Design**
+- **Drag-and-Drop Interface**: Intuitively build layouts by dragging components (Containers, Inputs, Media) from the sidebar.
+- **Real-Time Preview**: Instantly see your changes on a live canvas.
+- **Responsive Design Modes**: Toggle between Desktop, Tablet, and Mobile views to ensure your UI works on all devices.
+- **Design System Panel**: Built-in reference for color palettes, typography scales, and spacing guidelines.
 
-2.  **Setup**:
+### **Code & Development**
+- **Monaco Editor Integration**: Professional-grade code editing with syntax highlighting (powered by VS Code's editor engine).
+- **Bi-Directional Sync**: Changes in the visual builder update the code, and edits in the code editor update the visual preview.
+- **Built-in Terminal**: Execute shell commands directly from the browser interface (powered by a Python/Flask backend).
+
+### **Productivity Tools**
+- **Property Inspector**: Granular control over element attributes (ID, classes, text content, styles).
+- **Asset Management**: Upload and manage project assets (images, media) directly within the IDE.
+- **Undo/Redo History**: Fearlessly experiment with full state management support.
+- **Local Persistence**: Your work is automatically saved to local storage, so you never lose progress.
+- **Export**: Download your project as a clean, standalone HTML file.
+
+---
+
+## 🛠️ Installation
+
+### Prerequisites
+- **Python 3.7+**
+- **pip** (Python package manager)
+
+### Setup
+1.  **Clone the repository** (or download source):
     ```bash
-    cd "Visual UI Code"
+    git clone https://github.com/yourusername/visual-ui-code.git
+    cd visual-ui-code
+    ```
+
+2.  **Install dependencies**:
+    ```bash
     pip install -r requirements.txt
     ```
 
-3.  **Run**:
+3.  **Run the application**:
     ```bash
     python app.py
     ```
 
-4.  **Access**:
+4.  **Access the IDE**:
     Open your browser and navigate to `http://localhost:5000`.
 
-## User Manual
+---
+
+## 📖 User Manual
 
 ### Interface Overview
-- **Toolbar**: Contains Undo/Redo, View Mode toggles (Desktop/Tablet/Mobile), Save, and Export buttons.
-- **Component Sidebar**: Drag elements (Div, Button, Image, etc.) from here to the Preview Canvas.
-- **Property Inspector**: Select an element in the canvas to view and edit its properties in the bottom-left panel.
-- **Code Editor**: View the generated HTML code. You can also edit code here (note: two-way binding is currently one-way from Visual -> Code).
-- **Terminal**: Type commands in the input field at the bottom center to execute them on the server.
+| Section | Description |
+| :--- | :--- |
+| **Sidebar (Left)** | Contains three tabs: **HTML** (Components & Assets), **CSS** (Design System), and **JS**. Also houses the **Property Inspector**. |
+| **Code Panel (Center)** | The Monaco Editor for direct code manipulation and the integrated **Terminal**. |
+| **Preview Panel (Right)** | The live canvas where you drop elements. Includes a toolbar for responsive testing. |
 
-### How to Use
-1.  **Add Elements**: Drag a component from the sidebar and drop it onto the white canvas area.
-2.  **Select Elements**: Click on any element in the canvas to select it. A blue border will appear.
-3.  **Edit Properties**: With an element selected, use the Property Inspector to change text, colors, margin, padding, etc.
-4.  **Structure**: You can drop elements inside other container elements (like Divs or Sections) to build complex layouts.
-5.  **Preview**: Use the device icons in the top toolbar to see how your layout looks on different screen sizes.
-6.  **Export**: Click "Export" to download a `project.html` file containing your design.
+### Workflow
+1.  **Select a Component**: Click the **HTML** tab in the sidebar.
+2.  **Drag & Drop**: Drag a component (e.g., `Button`, `Div`, `Image`) onto the preview canvas.
+3.  **Customize**: Click the element on the canvas to select it. Use the **Property Inspector** at the bottom left to change its text, color, or classes.
+4.  **Refine Code**: Switch to the center panel to fine-tune the generated HTML/CSS.
+5.  **Save & Export**: Use the top toolbar to save your progress or export the final `project.html`.
 
-## Technical Details
-- **Frontend**: HTML5, CSS3, JavaScript (ES6+).
-- **Backend**: Flask (Python) for serving files and executing terminal commands.
-- **Storage**: Uses Browser LocalStorage for quick saves.
+---
 
-## Testing
-Run the test suite:
-```bash
-python -m unittest discover tests
-```
+## 💻 Technologies Used
+
+- **Frontend**: HTML5, CSS3 (Modern Variables, Flexbox/Grid), JavaScript (ES6+), Monaco Editor.
+- **Backend**: Python, Flask.
+- **Utilities**: Mobile Drag-Drop Polyfill (for touch support), FontAwesome (Icons).
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1.  Fork the project
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4.  Push to the branch (`git push origin feature/AmazingFeature`)
+5.  Open a Pull Request
+
+---
+
+*Built with ❤️ for visual developers.*

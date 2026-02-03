@@ -7,6 +7,79 @@ const Builder = {
         this.canvas = document.getElementById('preview-canvas');
         this.setupDragAndDrop();
         this.setupCanvasInteractions();
+        this.setupTooltip();
+    },
+
+    setupTooltip: function() {
+        // Create tooltip element
+        const tooltip = document.createElement('div');
+        tooltip.className = 'builder-tooltip';
+        tooltip.style.display = 'none';
+        document.body.appendChild(tooltip);
+        this.tooltip = tooltip;
+
+        // Mouse move handler
+        this.canvas.addEventListener('mousemove', (e) => {
+            const target = e.target;
+            
+            // Don't show for canvas itself
+            if (target === this.canvas || target.classList.contains('preview-canvas')) {
+                tooltip.style.display = 'none';
+                return;
+            }
+
+            // Get info
+            const tagName = target.tagName.toLowerCase();
+            const id = target.id;
+            const classes = Array.from(target.classList)
+                .filter(c => c !== 'dropped-element' && c !== 'selected')
+                .join('.');
+                
+            // Build Content
+            let content = `<span class="tag">${tagName}</span>`;
+            
+            // Only show ID if it has a value
+            if (id && id.trim() !== '') {
+                content += `<span class="id">#${id}</span>`;
+            }
+            
+            // Always show classes if they exist
+            if (classes) {
+                content += `<span class="class">.${classes}</span>`;
+            }
+            
+            tooltip.innerHTML = content;
+            tooltip.style.display = 'block';
+
+            // Positioning
+            const offset = 20; // Distance from cursor
+            let left = e.clientX;
+            let top = e.clientY - offset - tooltip.offsetHeight; // Position above cursor
+
+            // Boundary checks
+            // 1. Top boundary: if tooltip goes above viewport, move it below cursor
+            if (top < 0) {
+                top = e.clientY + offset; 
+            }
+            
+            // 2. Right boundary: if tooltip goes off-screen right, shift left
+            if (left + tooltip.offsetWidth > window.innerWidth) {
+                left = window.innerWidth - tooltip.offsetWidth - 10;
+            }
+            
+            // 3. Left boundary: ensure it doesn't go off-screen left
+            if (left < 0) {
+                left = 10;
+            }
+
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        });
+
+        // Hide on leave
+        this.canvas.addEventListener('mouseleave', () => {
+            tooltip.style.display = 'none';
+        });
     },
 
     setupDragAndDrop: function() {

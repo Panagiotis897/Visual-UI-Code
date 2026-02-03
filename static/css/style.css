@@ -147,6 +147,147 @@ body.is-resizing * {
     min-width: 150px;
 }
 
+/* Modern Sidebar Tabs */
+.sidebar-tabs {
+    display: flex;
+    padding: 10px 12px;
+    gap: 8px;
+    background-color: #1e1e1e; /* Slightly darker than panel for contrast */
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modern-tabs button {
+    flex: 1;
+    background-color: transparent;
+    border: 1px solid transparent;
+    color: #888;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.modern-tabs button:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--text-light);
+}
+
+.modern-tabs button.active {
+    background-color: rgba(0, 122, 204, 0.15);
+    border: 1px solid rgba(0, 122, 204, 0.3);
+    color: var(--accent-color);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Design System Panel Styles */
+.css-panel-content {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.design-section {
+    margin-bottom: 24px;
+    background: #1e1e1e;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.section-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+    margin-bottom: 12px;
+    font-weight: bold;
+}
+
+.color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.color-swatch {
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.color-swatch:hover {
+    transform: translateY(-2px);
+}
+
+.color-preview {
+    height: 40px;
+    border-radius: 6px;
+    background-color: var(--bg);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    margin-bottom: 4px;
+}
+
+.color-info {
+    font-size: 0.7rem;
+    color: #ccc;
+    text-align: center;
+}
+
+.color-picker-tool {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.8rem;
+    color: #ccc;
+    background: #252526;
+    padding: 8px;
+    border-radius: 6px;
+}
+
+.typography-preview .type-sample {
+    margin-bottom: 4px;
+    color: var(--text-light);
+}
+
+.typography-preview .type-info {
+    font-size: 0.7rem;
+    color: #666;
+    margin-bottom: 12px;
+    font-family: monospace;
+}
+
+.type-sample.h1 { font-size: 2.5rem; font-weight: bold; }
+.type-sample.h2 { font-size: 2rem; font-weight: 600; }
+.type-sample.body { font-size: 1rem; }
+.type-sample.small { font-size: 0.8rem; font-weight: 300; }
+
+.spacing-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.space-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.8rem;
+    color: #ccc;
+}
+
+.space-box {
+    background: rgba(0, 122, 204, 0.3);
+    border: 1px dashed var(--accent-color);
+    height: 20px;
+}
+
+.space-box.s-8 { width: 8px; }
+.space-box.s-16 { width: 16px; }
+.space-box.s-32 { width: 32px; }
 .panel-header {
     padding: 10px 16px;
     font-size: 0.8rem;
@@ -155,11 +296,40 @@ body.is-resizing * {
     color: #888;
     background-color: #1e1e1e;
     border-bottom: 1px solid var(--border-color);
-    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
+
+.sidebar-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.component-categories {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #424242 #1e1e1e;
+}
+
+.component-categories::-webkit-scrollbar {
+    width: 8px;
+}
+
+.component-categories::-webkit-scrollbar-track {
+    background: #1e1e1e;
+}
+
+.component-categories::-webkit-scrollbar-thumb {
+    background-color: #424242;
+    border-radius: 4px;
+}
+
 .sidebar .panel-header:first-child {
     border-top: none;
 }
@@ -428,4 +598,61 @@ body.is-resizing * {
 
 .mt-auto {
     margin-top: auto;
+}
+
+/* Builder Tooltip */
+.builder-tooltip {
+    position: absolute;
+    background: #333;
+    color: white;
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: monospace;
+    z-index: 9999;
+    pointer-events: none; /* Prevents flickering */
+    white-space: nowrap;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    border: 1px solid #555;
+    transition: top 0.1s ease, left 0.1s ease; /* Slight smoothing */
+}
+
+.builder-tooltip .tag {
+    color: #569cd6; /* VS Code Blue for tags */
+    font-weight: bold;
+}
+
+.builder-tooltip .id {
+    color: #ce9178; /* VS Code Orange for IDs */
+    margin-left: 4px;
+}
+
+.builder-tooltip .class {
+    color: #4ec9b0; /* VS Code Teal for classes */
+    margin-left: 4px;
+}
+
+/* Back Button */
+.btn-back {
+    background-color: transparent;
+    border: 1px solid #3e3e42;
+    color: #888;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.btn-back:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--text-light);
+    border-color: var(--text-light);
+}
+
+.btn-back i {
+    font-size: 0.7rem;
 }
