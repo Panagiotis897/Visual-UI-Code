@@ -39,7 +39,7 @@ A comprehensive, web-based integrated development environment (IDE) for visual U
 ### Setup
 1.  **Clone the repository** (or download source):
     ```bash
-    git clone https://github.com/yourusername/visual-ui-code.git
+    git clone https://github.com/Panagiotis897/Visual-UI-Code.git
     cd visual-ui-code
     ```
 

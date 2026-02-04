@@ -5,6 +5,10 @@ const Builder = {
 
     init: function() {
         this.canvas = document.getElementById('preview-canvas');
+        if (!this.canvas) {
+            console.error('Builder: Preview canvas not found');
+            return;
+        }
         this.setupDragAndDrop();
         this.setupCanvasInteractions();
         this.setupTooltip();
@@ -124,12 +128,60 @@ const Builder = {
             }
 
             const type = e.dataTransfer.getData('text/plain');
-            if (type) {
+            if (type === 'saved-block') {
+                const blockId = e.dataTransfer.getData('application/vuc-block-id');
+                this.createSavedBlock(blockId, target);
+                if (window.App) window.App.updateCode();
+            } else if (type) {
                 this.createElement(type, target);
-                // Trigger code update
                 if (window.App) window.App.updateCode();
             }
         });
+    },
+
+    createSavedBlock: function(blockId, parent) {
+        if (!window.App || !window.App.savedBlocks) return;
+        
+        const block = window.App.savedBlocks.find(b => b.id === blockId);
+        if (!block) return;
+        
+        // Create a temporary container to parse HTML
+        const temp = document.createElement('div');
+        temp.innerHTML = block.html;
+        
+        // The saved html might be a single element or multiple
+        // We usually expect a single root element from saveCurrentBlock
+        // but let's handle children
+        Array.from(temp.children).forEach(child => {
+            // Re-generate ID to avoid duplicates if dropped multiple times
+            // But we might want to keep internal structure IDs?
+            // For now, let's just append
+            
+            // We need to ensure it has 'dropped-element' class
+            // The saved HTML might already have it, but let's make sure
+            // and recursively add it if missing?
+            // Actually, loadHTML logic is better
+            
+            const clone = child.cloneNode(true);
+            
+            // Recursive class adder
+            const addClasses = (el) => {
+                el.classList.add('dropped-element');
+                // Remove 'selected' if it was saved as selected
+                el.classList.remove('selected');
+                
+                // If it doesn't have an ID, give it one
+                if (!el.id) el.id = 'saved-' + Math.random().toString(36).substr(2, 9);
+                
+                Array.from(el.children).forEach(addClasses);
+            };
+            addClasses(clone);
+            
+            parent.appendChild(clone);
+            this.selectElement(clone);
+        });
+        
+        if (window.App) window.App.saveState();
     },
 
     setupCanvasInteractions: function() {
