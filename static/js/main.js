@@ -4,10 +4,21 @@ const App = {
     maxHistory: 20,
     saveTimeout: null,
     isUpdatingCode: false,
+    expandedPaths: new Set(), // Track expanded folders
 
     init: function() {
-        this.renderRecentProjects(); // Render Hub
-        this.initProjectHub();
+        // Load expanded paths
+        try {
+            const saved = JSON.parse(localStorage.getItem('vuc_expanded_paths'));
+            if (Array.isArray(saved)) this.expandedPaths = new Set(saved);
+        } catch (e) {
+            console.error('Failed to load expanded paths', e);
+        }
+
+        // Load saved project path
+        this.currentProjectPath = localStorage.getItem('vuc_project_path');
+        
+        this.renderRecentProjects();
         this.initSavedBlocks();
         this.loadProjectColors();
         Builder.init();
@@ -15,12 +26,23 @@ const App = {
         this.setupTerminal();
         this.loadProject();
         this.initMonaco();
+        this.setupCodeEditorDragAndDrop(); // Init DnD for Editor
         this.setupResizers();
         this.loadLayout();
         this.initColorStudio();
+        
+        // Load File Tree if project path exists
+        if (this.currentProjectPath) {
+            this.refreshFileTree();
+            const projectName = this.currentProjectPath.split(/[/\\]/).pop();
+            const titleEl = document.getElementById('explorer-project-name');
+            if (titleEl) titleEl.innerHTML = `<i class="fas fa-chevron-down"></i> &nbsp; ${projectName.toUpperCase()}`;
+        }
+
         // Initial save
         this.saveState(); 
         this.updateCode();
+        this.renderStructureTree(); // Init Tree
     },
 
     // --- Navigation & UI Control ---
@@ -29,14 +51,199 @@ const App = {
     },
 
     openProject: function() {
-        document.getElementById('project-upload').click();
+        this.showProjectPicker();
+    },
+
+    showProjectPicker: function(path = null) {
+        if (!path) path = this.currentProjectPath || '~/projects';
+        
+        const container = document.createElement('div');
+        container.style.height = '400px';
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        
+        // Header (Current Path + Up Button)
+        const header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.gap = '10px';
+        header.style.marginBottom = '10px';
+        header.style.alignItems = 'center';
+        
+        const upBtn = document.createElement('button');
+        upBtn.innerHTML = '<i class="fas fa-level-up-alt"></i>';
+        upBtn.className = 'btn';
+        upBtn.onclick = () => {
+            // Simple string manipulation for parent
+            let parent = path.replace(/\\/g, '/').split('/');
+            parent.pop();
+            const parentPath = parent.join('/') || '/';
+            this.showProjectPicker(parentPath);
+        };
+        
+        const newFolderBtn = document.createElement('button');
+        newFolderBtn.innerHTML = '<i class="fas fa-folder-plus"></i>';
+        newFolderBtn.className = 'btn';
+        newFolderBtn.title = 'Create New Folder';
+        newFolderBtn.onclick = () => {
+             const name = prompt('New Folder Name:');
+             if (name) {
+                 fetch('/api/create_folder', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ path: path + '/' + name })
+                 })
+                 .then(res => res.json())
+                 .then(data => {
+                     if (data.error) alert(data.error);
+                     else this.showProjectPicker(path); // Refresh
+                 });
+             }
+        };
+
+        const pathDisplay = document.createElement('input');
+        pathDisplay.type = 'text';
+        pathDisplay.value = path;
+        pathDisplay.className = 'prop-input';
+        pathDisplay.style.flex = '1';
+        pathDisplay.onchange = (e) => this.showProjectPicker(e.target.value);
+        
+        header.appendChild(upBtn);
+        header.appendChild(newFolderBtn);
+        header.appendChild(pathDisplay);
+        container.appendChild(header);
+        
+        // File List
+        const listContainer = document.createElement('div');
+        listContainer.style.flex = '1';
+        listContainer.style.overflowY = 'auto';
+        listContainer.style.border = '1px solid #333';
+        listContainer.style.borderRadius = '4px';
+        listContainer.style.padding = '5px';
+        listContainer.style.backgroundColor = '#1e1e1e';
+        listContainer.innerHTML = '<div style="padding:10px; color:#888;">Loading...</div>';
+        container.appendChild(listContainer);
+        
+        // Fetch files
+        fetch('/api/list_files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                listContainer.innerHTML = `<div style="color:red; padding:10px;">Error: ${data.error}</div>`;
+                return;
+            }
+            
+            // Update path if resolved differently
+            if (data.path) {
+                path = data.path;
+                pathDisplay.value = path;
+            }
+            
+            listContainer.innerHTML = '';
+            
+            // Directories only for picker (usually) or all files?
+            // Let's show dirs prominently
+            const dirs = data.items.filter(i => i.type === 'dir');
+            
+            if (dirs.length === 0) {
+                listContainer.innerHTML = '<div style="padding:10px; color:#666;">No subdirectories found.</div>';
+            }
+            
+            dirs.forEach(dir => {
+                const item = document.createElement('div');
+                item.style.padding = '5px 10px';
+                item.style.cursor = 'pointer';
+                item.style.display = 'flex';
+                item.style.alignItems = 'center';
+                item.style.gap = '10px';
+                item.innerHTML = `<i class="fas fa-folder" style="color:#dcb67a;"></i> ${dir.name}`;
+                item.onmouseover = () => item.style.backgroundColor = '#2a2d2e';
+                item.onmouseout = () => item.style.backgroundColor = 'transparent';
+                item.onclick = () => this.showProjectPicker(dir.path);
+                listContainer.appendChild(item);
+            });
+        })
+        .catch(err => {
+            listContainer.innerHTML = `<div style="color:red; padding:10px;">Connection Error</div>`;
+        });
+        
+        // Footer Buttons
+        const footer = document.createElement('div');
+        footer.style.marginTop = '15px';
+        footer.style.display = 'flex';
+        footer.style.justifyContent = 'flex-end';
+        footer.style.gap = '10px';
+        
+        const cancelBtn = document.createElement('button');
+        cancelBtn.innerText = 'Cancel';
+        cancelBtn.className = 'btn';
+        cancelBtn.onclick = () => this.closeModal();
+        
+        const selectBtn = document.createElement('button');
+        selectBtn.innerText = 'Open This Project';
+        selectBtn.className = 'btn primary';
+        selectBtn.onclick = () => {
+            this.currentProjectPath = path;
+            localStorage.setItem('vuc_project_path', path);
+            
+            // Update Explorer Title
+            const projectName = path.split(/[/\\]/).pop();
+            const titleEl = document.getElementById('explorer-project-name');
+            if (titleEl) titleEl.innerHTML = `<i class="fas fa-chevron-down"></i> &nbsp; ${projectName.toUpperCase()}`;
+
+            document.getElementById('project-hub').style.display = 'none';
+            this.closeModal();
+            this.refreshFileTree();
+            this.logConsole(`Project path set to: ${path}`, 'success');
+            
+            this.addToRecentProjects(path);
+            
+            // Try to load index.html
+            fetch('/api/read_file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: path + '/index.html' }) // Try standard location
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data.error) {
+                    // It's an HTML file
+                    Builder.loadHTML(data.content);
+                    this.logConsole('Loaded index.html', 'success');
+                } else {
+                    // Maybe try main.js if it's a JS project?
+                    this.logConsole('No index.html found in root. Check file tree.', 'info');
+                }
+            });
+        };
+        
+        footer.appendChild(cancelBtn);
+        footer.appendChild(selectBtn);
+        container.appendChild(footer);
+
+        this.showModal({
+            title: 'Open Project Folder',
+            message: '',
+            onOk: null // Handled by custom buttons
+        });
+        
+        // Inject content
+        const msgEl = document.getElementById('generic-modal-message');
+        if (msgEl) {
+            msgEl.innerHTML = '';
+            msgEl.appendChild(container);
+        }
     },
 
     openInVSCode: function() {
+        const path = this.currentProjectPath || '.';
         fetch('/api/run_command', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: 'code .' })
+            body: JSON.stringify({ command: `code "${path}"` })
         })
         .then(res => res.json())
         .then(data => {
@@ -152,93 +359,286 @@ Views:
 
     // --- Project Hub Logic ---
     startNewProject: function(type) {
-        document.getElementById('project-hub').style.display = 'none';
-        Builder.canvas.innerHTML = '';
-        this.history = [];
-        
-        if (type === 'static') {
-            Builder.canvas.innerHTML = '<div class="dropped-element" style="padding:40px; text-align:center;"><h1>New Static Site</h1><p>Start dragging components...</p></div>';
-        } else if (type === 'js') {
-             Builder.canvas.innerHTML = '<div class="dropped-element" style="padding:40px; text-align:center;"><h1>JS App</h1><div id="app"></div><script>console.log("App Started");</script></div>';
-        } else {
-             Builder.canvas.innerHTML = '<div class="dropped-element" style="padding:40px; text-align:center;"><h1>TypeScript Project</h1><p>TS Compiler Ready...</p></div>';
+        // If type is not provided, we need to ask for it
+        if (!type) {
+             const container = document.createElement('div');
+             container.style.display = 'flex';
+             container.style.flexDirection = 'column';
+             container.style.gap = '15px';
+             container.style.marginTop = '10px';
+
+             const label = document.createElement('label');
+             label.innerText = 'Select Project Type:';
+             label.style.color = '#ccc';
+             container.appendChild(label);
+
+             const types = [
+                 { id: 'static', name: 'Static Website (HTML/CSS/JS)', icon: 'fas fa-globe' },
+                 { id: 'js', name: 'JavaScript App', icon: 'fab fa-js' },
+                 { id: 'ts', name: 'TypeScript Project', icon: 'fas fa-file-code' }
+             ];
+
+             types.forEach(t => {
+                 const btn = document.createElement('button');
+                 btn.className = 'btn';
+                 btn.style.textAlign = 'left';
+                 btn.style.padding = '10px';
+                 btn.style.display = 'flex';
+                 btn.style.alignItems = 'center';
+                 btn.style.gap = '10px';
+                 btn.innerHTML = `<i class="${t.icon}"></i> ${t.name}`;
+                 btn.onclick = () => {
+                     this.closeModal();
+                     setTimeout(() => this.startNewProject(t.id), 100);
+                 };
+                 container.appendChild(btn);
+             });
+
+             this.showModal({
+                 title: 'Create New Project',
+                 message: '',
+                 onOk: null
+             });
+             
+             const msgEl = document.getElementById('generic-modal-message');
+             if (msgEl) {
+                 msgEl.innerHTML = '';
+                 msgEl.appendChild(container);
+             }
+             return;
         }
-        
-        this.saveState();
-        this.updateCode();
+
+        // Create form content
+        const container = document.createElement('div');
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.gap = '15px';
+        container.style.marginTop = '10px';
+
+        // Project Name
+        const nameGroup = document.createElement('div');
+        const nameLabel = document.createElement('label');
+        nameLabel.innerText = 'Project Name:';
+        nameLabel.style.display = 'block';
+        nameLabel.style.marginBottom = '5px';
+        nameLabel.style.color = '#ccc';
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'prop-input';
+        nameInput.placeholder = 'MyAwesomeProject';
+        nameGroup.appendChild(nameLabel);
+        nameGroup.appendChild(nameInput);
+        container.appendChild(nameGroup);
+
+        // Save Path
+        const pathGroup = document.createElement('div');
+        const pathLabel = document.createElement('label');
+        pathLabel.innerText = 'Save Location:';
+        pathLabel.style.display = 'block';
+        pathLabel.style.marginBottom = '5px';
+        pathLabel.style.color = '#ccc';
+        const pathInput = document.createElement('input');
+        pathInput.type = 'text';
+        pathInput.className = 'prop-input';
+        pathInput.value = '~/projects'; 
+        pathGroup.appendChild(pathLabel);
+        pathGroup.appendChild(pathInput);
+        container.appendChild(pathGroup);
+
+        // Transpiler Option (for TS)
+        let transpilerSelect;
+        if (type === 'ts') {
+            const tsGroup = document.createElement('div');
+            const tsLabel = document.createElement('label');
+            tsLabel.innerText = 'Transpiler:';
+            tsLabel.style.display = 'block';
+            tsLabel.style.marginBottom = '5px';
+            tsLabel.style.color = '#ccc';
+            
+            transpilerSelect = document.createElement('select');
+            transpilerSelect.className = 'prop-input';
+            
+            const optBun = document.createElement('option');
+            optBun.value = 'bun';
+            optBun.innerText = 'Bun (Fast)';
+            transpilerSelect.appendChild(optBun);
+            
+            const optTsc = document.createElement('option');
+            optTsc.value = 'tsc';
+            optTsc.innerText = 'TypeScript Compiler (tsc)';
+            transpilerSelect.appendChild(optTsc);
+            
+            tsGroup.appendChild(tsLabel);
+            tsGroup.appendChild(transpilerSelect);
+            container.appendChild(tsGroup);
+        }
+
+        this.showModal({
+            title: `Create New ${type.toUpperCase()} Project`,
+            message: '', 
+            showInput: false,
+            onOk: () => {
+                const name = nameInput.value.trim();
+                const path = pathInput.value.trim();
+                const transpiler = transpilerSelect ? transpilerSelect.value : null;
+
+                if (!name) {
+                    alert('Project name is required!');
+                    return;
+                }
+
+                // Call API
+                fetch('/api/create_project', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        path: path,
+                        type: type,
+                        transpiler: transpiler
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                    } else {
+                        // Success
+                        document.getElementById('project-hub').style.display = 'none';
+                        this.logConsole(`Created project "${name}" at ${data.path}`, 'success');
+                        
+                        // Save Path
+                        localStorage.setItem('vuc_project_path', data.path);
+                        this.currentProjectPath = data.path;
+
+                        // Load the new project content
+                        Builder.canvas.innerHTML = '';
+                        if (type === 'static') {
+                             Builder.canvas.innerHTML = `<div class="dropped-element" style="padding:40px; text-align:center;"><h1>${name}</h1><p>Start building your static site!</p></div>`;
+                        } else if (type === 'js') {
+                             Builder.canvas.innerHTML = `<div class="dropped-element" style="padding:40px; text-align:center;"><h1>${name}</h1><p>JS App Initialized</p></div>`;
+                        } else {
+                             Builder.canvas.innerHTML = `<div class="dropped-element" style="padding:40px; text-align:center;"><h1>${name}</h1><p>TypeScript Project (${transpiler}) Ready</p></div>`;
+                        }
+                        
+                        // Update Explorer Title
+                        const projectName = data.path.split(/[/\\]/).pop();
+                        const titleEl = document.getElementById('explorer-project-name');
+                        if (titleEl) titleEl.innerHTML = `<i class="fas fa-chevron-down"></i> &nbsp; ${projectName.toUpperCase()}`;
+
+                        // Refresh File Tree
+                        this.refreshFileTree();
+
+                        this.addToRecentProjects(data.path);
+
+                        this.saveState();
+                        this.updateCode();
+                    }
+                })
+                .catch(err => {
+                    alert('Connection error: ' + err.message);
+                });
+            }
+        });
+
+        // Inject custom content
+        const msgEl = document.getElementById('generic-modal-message');
+        if (msgEl) {
+            msgEl.innerHTML = '';
+            msgEl.appendChild(container);
+            setTimeout(() => nameInput.focus(), 100);
+        }
     },
 
     openRecent: function(name) {
-        document.getElementById('project-hub').style.display = 'none';
-        // Simulate loading
+        // Deprecated but kept for compatibility if needed
         console.log('Loading project:', name);
     },
 
-    renderRecentProjects: function(filter = '') {
-        const list = document.getElementById('recent-projects-list');
-        if (!list) return;
-        const projects = [
-            { name: 'Portfolio', path: '~/projects/portfolio', date: '2h ago', type: 'js' },
-            { name: 'E-commerce UI', path: '~/projects/shop', date: '1d ago', type: 'ts' },
-            { name: 'Dashboard', path: '~/projects/admin', date: '3d ago', type: 'static' }
-        ];
+    renderRecentProjects: function() {
+        const container = document.getElementById('recent-projects-list');
+        const section = document.getElementById('hub-recent-section');
+        if (!container || !section) return;
         
-        const filtered = projects.filter(p => p.name.toLowerCase().includes(filter.toLowerCase()));
-
-        if (filtered.length === 0) {
-            list.innerHTML = '<div style="color:#888; padding:20px;">No projects found.</div>';
+        let recent = [];
+        try {
+            recent = JSON.parse(localStorage.getItem('vuc_recent_projects') || '[]');
+        } catch(e) { recent = []; }
+        
+        if (recent.length === 0) {
+            section.style.display = 'none';
             return;
         }
+        
+        section.style.display = 'block';
+        container.innerHTML = '';
+        
+        recent.forEach(p => {
+            const item = document.createElement('div');
+            item.className = 'recent-item';
+            item.onclick = () => {
+                 this.currentProjectPath = p.path;
+                 localStorage.setItem('vuc_project_path', p.path);
+                 
+                 // Update Explorer Title
+                 const projectName = p.path.split(/[/\\]/).pop();
+                 const titleEl = document.getElementById('explorer-project-name');
+                 if (titleEl) titleEl.innerHTML = `<i class="fas fa-chevron-down"></i> &nbsp; ${projectName.toUpperCase()}`;
 
-        list.innerHTML = filtered.map(p => `
-            <div class="recent-item" onclick="App.openRecent('${p.name}')">
-                <div class="icon"><i class="fas fa-${p.type === 'static' ? 'globe' : (p.type === 'ts' ? 'microsoft' : 'js')}"></i></div>
+                 document.getElementById('project-hub').style.display = 'none';
+                 this.refreshFileTree();
+                 
+                 // Move to top of recent
+                 this.addToRecentProjects(p.path);
+                 // No need to re-render immediately as hub is closed, but good for next time
+            };
+            
+            item.innerHTML = `
+                <div class="icon"><i class="fas fa-folder"></i></div>
                 <div class="details">
                     <span class="name">${p.name}</span>
                     <span class="path">${p.path}</span>
                 </div>
-                <span class="date">${p.date}</span>
-            </div>
-        `).join('');
+                <div class="date">${p.date}</div>
+            `;
+            container.appendChild(item);
+        });
+    },
+
+    addToRecentProjects: function(path) {
+        if (!path) return;
+        let recent = [];
+        try {
+            recent = JSON.parse(localStorage.getItem('vuc_recent_projects') || '[]');
+        } catch(e) { recent = []; }
+        
+        // Remove if exists
+        recent = recent.filter(p => p.path !== path);
+        
+        // Add to top
+        const name = path.split(/[/\\]/).pop();
+        recent.unshift({
+            name: name,
+            path: path,
+            date: new Date().toLocaleDateString()
+        });
+        
+        // Limit
+        if (recent.length > 10) recent.pop();
+        
+        localStorage.setItem('vuc_recent_projects', JSON.stringify(recent));
+        this.renderRecentProjects();
+    },
+
+    clearRecentProjects: function() {
+        if(confirm('Clear recent projects list?')) {
+            localStorage.removeItem('vuc_recent_projects');
+            this.renderRecentProjects();
+        }
     },
 
     initProjectHub: function() {
-        const searchInput = document.getElementById('hub-search');
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                this.renderRecentProjects(e.target.value);
-            });
-        }
-        
-        // Tab switching logic
-        const tabs = document.querySelectorAll('.hub-nav li');
-        tabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                tabs.forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                
-                const tabName = tab.dataset.hubTab;
-                const list = document.getElementById('recent-projects-list');
-                const title = document.querySelector('.hub-recent h3');
-
-                if (tabName === 'templates') {
-                     if (title) title.innerText = 'Templates';
-                     list.innerHTML = `
-                        <div class="recent-item" onclick="App.startNewProject('static')">
-                            <div class="icon"><i class="fas fa-columns"></i></div>
-                            <div class="details"><span class="name">Landing Page</span><span class="path">Basic Layout</span></div>
-                        </div>
-                        <div class="recent-item" onclick="App.startNewProject('js')">
-                             <div class="icon"><i class="fas fa-chart-line"></i></div>
-                             <div class="details"><span class="name">Admin Dashboard</span><span class="path">React + Tailwind</span></div>
-                         </div>
-                     `;
-                } else {
-                    if (title) title.innerText = 'Recent Projects';
-                    this.renderRecentProjects(searchInput ? searchInput.value : '');
-                }
-            });
-        });
+        // Simplified init
     },
 
     // --- Color Studio Logic ---
@@ -436,6 +836,89 @@ Views:
     toggleCategory: function(header) {
         const category = header.parentElement;
         category.classList.toggle('collapsed');
+    },
+
+    setupCodeEditorDragAndDrop: function() {
+        // Wait for Monaco container
+        setTimeout(() => {
+            const editorEl = document.getElementById('monaco-editor');
+            if (!editorEl) return;
+
+            editorEl.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                editorEl.style.outline = '2px dashed #007acc';
+            });
+
+            editorEl.addEventListener('dragleave', () => {
+                editorEl.style.outline = '';
+            });
+
+            editorEl.addEventListener('drop', (e) => {
+                e.preventDefault();
+                editorEl.style.outline = '';
+                
+                const type = e.dataTransfer.getData('text/plain');
+                if (!type || !ComponentDefinitions[type]) return;
+
+                // Generate Code
+                const def = ComponentDefinitions[type];
+                let code = `<${def.tag}`;
+                
+                // Add class
+                if (def.attributes.class) code += ` class="${def.attributes.class}"`;
+                
+                // Add other attributes
+                for (const [k, v] of Object.entries(def.attributes)) {
+                    if (k !== 'class') code += ` ${k}="${v}"`;
+                }
+                
+                // Add default styles (to match visual builder)
+                let styleStr = '';
+                for (const [k, v] of Object.entries(def.defaultStyles)) {
+                    styleStr += `${k}: ${v}; `;
+                }
+                if (styleStr) code += ` style="${styleStr.trim()}"`;
+                
+                code += `>`;
+                
+                // Add content
+                if (!def.isVoid) {
+                    code += def.defaultContent || '';
+                    code += `</${def.tag}>`;
+                }
+
+                // Insert into Monaco
+                if (window.monacoEditor) {
+                    // Get drop position
+                    const target = window.monacoEditor.getTargetAtClientPoint(e.clientX, e.clientY);
+                    
+                    if (target && target.position) {
+                        const pos = target.position;
+                        window.monacoEditor.executeEdits('dnd', [{
+                            range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+                            text: code,
+                            forceMoveMarkers: true
+                        }]);
+                        window.monacoEditor.setPosition(pos);
+                        window.monacoEditor.revealPosition(pos);
+                    } else {
+                        // Fallback to cursor
+                        const selection = window.monacoEditor.getSelection();
+                        const op = {
+                            range: selection,
+                            text: code,
+                            forceMoveMarkers: true
+                        };
+                        window.monacoEditor.executeEdits('dnd', [op]);
+                    }
+                    
+                    // Trigger sync
+                    App.syncCodeToCanvas();
+                    App.logConsole(`Dropped ${def.name} into code`, 'success');
+                }
+            });
+        }, 1000); // Delay to ensure Monaco is ready
     },
 
     setupResizers: function() {
@@ -1199,11 +1682,8 @@ Views:
         });
         
         // Hide all content sections
-        const contents = ['html', 'css', 'js', 'assets'];
-        contents.forEach(t => {
-            const el = document.getElementById('sidebar-content-' + t);
-            if (el) el.style.display = 'none';
-        });
+        const contents = document.querySelectorAll('.sidebar-content');
+        contents.forEach(el => el.style.display = 'none');
 
         // Show active content
         const activeEl = document.getElementById('sidebar-content-' + tab);
@@ -1213,6 +1693,624 @@ Views:
         
         if (tab === 'assets') this.loadAssets();
         if (tab === 'js') this.renderJSPanel();
+        if (tab === 'files') this.refreshFileTree();
+    },
+
+    // --- File Tree Logic ---
+    currentProjectPath: null,
+    
+    // --- File Management ---
+    createNewFile: function(basePath = null) {
+        const path = basePath || this.currentProjectPath;
+        if (!path) {
+            alert('Please open a project folder first.');
+            return;
+        }
+        
+        this.showModal({
+            title: 'Create New File',
+            message: `Create file in ${path.split('/').pop()}:`,
+            showInput: true,
+            defaultValue: 'new-file.html',
+            onOk: (name) => {
+                if (!name) return;
+                const fullPath = path + '/' + name;
+                
+                // Create empty file
+                fetch('/api/save_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: fullPath, content: '' })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                    } else {
+                        this.logConsole(`Created file ${name}`, 'success');
+                        if (basePath) {
+                            this.expandedPaths.add(basePath);
+                            this.saveExpandedPaths();
+                        }
+                        this.refreshFileTree();
+                        this.openFile(fullPath);
+                    }
+                    this.closeModal();
+                });
+            }
+        });
+    },
+
+    createNewFolder: function(basePath = null) {
+        const path = basePath || this.currentProjectPath;
+        if (!path) {
+            alert('Please open a project folder first.');
+            return;
+        }
+
+        this.showModal({
+            title: 'Create New Folder',
+            message: `Create folder in ${path.split('/').pop()}:`,
+            showInput: true,
+            defaultValue: 'new-folder',
+            onOk: (name) => {
+                if (!name) return;
+                const fullPath = path + '/' + name;
+                
+                fetch('/api/create_folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: fullPath })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                    } else {
+                        this.logConsole(`Created folder ${name}`, 'success');
+                        if (basePath) {
+                            this.expandedPaths.add(basePath);
+                            this.saveExpandedPaths();
+                        }
+                        this.refreshFileTree();
+                    }
+                    this.closeModal();
+                });
+            }
+        });
+    },
+
+    // --- Structure Tree (DOM View) ---
+    renderStructureTree: function() {
+        const container = document.getElementById('structure-tree');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        const root = document.getElementById('preview-canvas'); // Or Builder.canvas
+        if (!root) return;
+        
+        // Helper to build tree
+        const buildTree = (element, depth = 0) => {
+            // Skip internal elements if any
+            if (element.classList.contains('preview-canvas')) {
+                Array.from(element.children).forEach(child => buildTree(child, depth));
+                return;
+            }
+            
+            const item = document.createElement('div');
+            item.className = 'structure-item';
+            item.style.paddingLeft = (depth * 15 + 5) + 'px';
+            item.style.paddingTop = '4px';
+            item.style.paddingBottom = '4px';
+            item.style.cursor = 'pointer';
+            item.style.display = 'flex';
+            item.style.alignItems = 'center';
+            item.style.borderBottom = '1px solid #333';
+            item.style.color = '#ddd';
+            item.draggable = true;
+            
+            // Sync Selection
+            if (Builder.selectedElements.includes(element)) {
+                item.style.backgroundColor = '#007acc';
+                item.style.color = '#fff';
+            }
+            
+            // Icon
+            const tagName = element.tagName.toLowerCase();
+            let iconClass = 'fas fa-code';
+            if (tagName === 'div') iconClass = 'far fa-square';
+            if (tagName === 'img') iconClass = 'far fa-image';
+            if (tagName === 'p' || tagName.startsWith('h')) iconClass = 'fas fa-font';
+            if (tagName === 'button') iconClass = 'fas fa-toggle-on';
+            
+            const icon = document.createElement('i');
+            icon.className = iconClass;
+            icon.style.marginRight = '8px';
+            icon.style.width = '16px';
+            icon.style.textAlign = 'center';
+            item.appendChild(icon);
+            
+            // Label
+            const label = document.createElement('span');
+            let labelText = tagName;
+            if (element.id) labelText += '#' + element.id;
+            if (element.className && typeof element.className === 'string') {
+                 const classes = element.className.replace('selected', '').replace('dropped-element', '').trim();
+                 if (classes) labelText += '.' + classes.replace(/\s+/g, '.');
+            }
+            label.innerText = labelText;
+            label.style.flex = '1';
+            label.style.whiteSpace = 'nowrap';
+            label.style.overflow = 'hidden';
+            label.style.textOverflow = 'ellipsis';
+            label.style.fontSize = '12px';
+            item.appendChild(label);
+            
+            // Events
+            item.onmouseover = (e) => {
+                e.stopPropagation();
+                // Shine on preview
+                Builder.highlightDropTarget(element);
+                item.style.backgroundColor = Builder.selectedElements.includes(element) ? '#007acc' : '#2a2d2e';
+            };
+            item.onmouseout = (e) => {
+                e.stopPropagation();
+                Builder.removeHighlight(element);
+                item.style.backgroundColor = Builder.selectedElements.includes(element) ? '#007acc' : 'transparent';
+            };
+            item.onclick = (e) => {
+                e.stopPropagation();
+                const multi = e.ctrlKey || e.metaKey;
+                Builder.selectElement(element, multi);
+                this.renderStructureTree(); // Re-render to show selection
+            };
+            
+            // Double Click to Edit
+            item.ondblclick = (e) => {
+                e.stopPropagation();
+                this.editStructureItem(element);
+            };
+            
+            // Drag & Drop
+            this.setupStructureDnD(item, element);
+            
+            container.appendChild(item);
+            
+            // Children
+            Array.from(element.children).forEach(child => buildTree(child, depth + 1));
+        };
+        
+        buildTree(root);
+    },
+    
+    editStructureItem: function(element) {
+        let updates = {};
+        
+        const applyChanges = () => {
+            let changed = false;
+            
+            if (updates.id !== undefined) {
+                element.id = updates.id;
+                changed = true;
+            }
+            
+            if (updates.className !== undefined) {
+                const internal = 'dropped-element' + (Builder.selectedElements.includes(element) ? ' selected' : '');
+                element.className = updates.className ? (updates.className + ' ' + internal) : internal;
+                changed = true;
+            }
+            
+            if (updates.innerText !== undefined) {
+                // Safety check: don't wipe children if not intended
+                if (element.children.length === 0 || confirm('This element has children. Overwriting text will remove them. Continue?')) {
+                    element.innerText = updates.innerText;
+                    changed = true;
+                }
+            }
+            
+            if (updates.src !== undefined && element.tagName === 'IMG') {
+                element.setAttribute('src', updates.src);
+                changed = true;
+            }
+            
+            if (changed) {
+                this.saveState();
+                this.updatePropertyInspector(element);
+                this.renderStructureTree();
+                this.updateCode();
+            }
+        };
+        
+        this.showModal({
+            title: 'Edit Element',
+            message: 'Loading properties...',
+            showInput: false,
+            onOk: () => {
+                applyChanges();
+            }
+        });
+        
+        // Inject Custom Form
+        setTimeout(() => {
+            const msgEl = document.getElementById('generic-modal-message');
+            if (!msgEl) return;
+            
+            msgEl.innerHTML = '';
+            
+            const form = document.createElement('div');
+            form.style.display = 'flex';
+            form.style.flexDirection = 'column';
+            form.style.gap = '10px';
+            
+            const addInput = (label, value, onChange) => {
+                const row = document.createElement('div');
+                row.innerHTML = `<label style="display:block; margin-bottom:4px; font-size:12px; color:#aaa;">${label}</label>`;
+                const inp = document.createElement('input');
+                inp.type = 'text';
+                inp.value = value;
+                inp.className = 'prop-input';
+                inp.style.width = '100%';
+                inp.onchange = (e) => onChange(e.target.value);
+                row.appendChild(inp);
+                form.appendChild(row);
+            };
+            
+            addInput('ID', element.id || '', (v) => updates.id = v);
+            
+            const currentClasses = element.className.replace('selected', '').replace('dropped-element', '').trim();
+            addInput('Classes', currentClasses, (v) => updates.className = v);
+            
+            // Only show content input for elements that usually have text or are empty
+            if (!['IMG', 'INPUT', 'BR', 'HR'].includes(element.tagName)) {
+                 const hasChildren = element.children.length > 0;
+                 const label = hasChildren ? 'Content (Text) - Warning: Has Children' : 'Content (Text)';
+                 addInput(label, hasChildren ? '' : element.innerText, (v) => updates.innerText = v);
+            }
+            
+            if (element.tagName === 'IMG') {
+                addInput('Src', element.getAttribute('src') || '', (v) => updates.src = v);
+            }
+            
+            // Add Apply Button
+            const btnRow = document.createElement('div');
+            btnRow.style.display = 'flex';
+            btnRow.style.justifyContent = 'flex-end';
+            btnRow.style.marginTop = '10px';
+            
+            const applyBtn = document.createElement('button');
+            applyBtn.className = 'btn';
+            applyBtn.style.backgroundColor = '#2d2d30';
+            applyBtn.style.border = '1px solid #444';
+            applyBtn.style.color = '#fff';
+            applyBtn.style.cursor = 'pointer';
+            applyBtn.innerText = 'Apply Changes';
+            applyBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                applyChanges();
+                
+                // Visual feedback
+                const originalText = applyBtn.innerText;
+                applyBtn.innerText = 'Applied!';
+                applyBtn.style.borderColor = '#007acc';
+                setTimeout(() => {
+                    applyBtn.innerText = originalText;
+                    applyBtn.style.borderColor = '#444';
+                }, 1000);
+            };
+            
+            btnRow.appendChild(applyBtn);
+            form.appendChild(btnRow);
+            
+            msgEl.appendChild(form);
+            
+            // Hide default input wrapper if visible (should be hidden by showInput:false but just in case)
+            const defInput = document.getElementById('generic-modal-input-wrapper');
+            if (defInput) defInput.style.display = 'none';
+            
+        }, 50);
+    },
+    
+    setupStructureDnD: function(item, element) {
+        item.addEventListener('dragstart', (e) => {
+            e.stopPropagation();
+            // Store the element reference globally to avoid ID dependency
+            App.draggedStructureElement = element;
+            e.dataTransfer.effectAllowed = 'move';
+            item.style.opacity = '0.5';
+        });
+        
+        item.addEventListener('dragend', (e) => {
+            item.style.opacity = '1';
+            document.querySelectorAll('.structure-item').forEach(el => {
+                el.style.borderTop = '';
+                el.style.borderBottom = '';
+                el.style.backgroundColor = ''; // Reset hover
+            });
+            App.draggedStructureElement = null;
+            this.renderStructureTree();
+        });
+        
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const rect = item.getBoundingClientRect();
+            const relY = e.clientY - rect.top;
+            const height = rect.height;
+            
+            // Reset styles
+            item.style.borderTop = '';
+            item.style.borderBottom = '';
+            item.style.backgroundColor = '#2a2d2e'; // Hover bg
+            
+            // Zones: Top 25% (Before), Bottom 25% (After), Middle 50% (Inside)
+            if (relY < height * 0.25) {
+                item.style.borderTop = '2px solid #007acc';
+                e.dataTransfer.dropEffect = 'move';
+                item.dataset.dropPos = 'before';
+            } else if (relY > height * 0.75) {
+                item.style.borderBottom = '2px solid #007acc';
+                e.dataTransfer.dropEffect = 'move';
+                item.dataset.dropPos = 'after';
+            } else {
+                item.style.backgroundColor = '#3e3e42'; // Highlight inside
+                e.dataTransfer.dropEffect = 'move';
+                item.dataset.dropPos = 'inside';
+            }
+        });
+        
+        item.addEventListener('dragleave', (e) => {
+             item.style.borderTop = '';
+             item.style.borderBottom = '';
+             item.style.backgroundColor = '';
+        });
+        
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const draggedEl = App.draggedStructureElement;
+            
+            if (!draggedEl || !element) return;
+            if (draggedEl === element) return; // Can't drop on self
+            if (draggedEl.contains(element)) return; // Can't drop parent into child
+            
+            const pos = item.dataset.dropPos;
+            
+            if (pos === 'before') {
+                element.parentNode.insertBefore(draggedEl, element);
+            } else if (pos === 'after') {
+                element.parentNode.insertBefore(draggedEl, element.nextSibling);
+            } else if (pos === 'inside') {
+                element.appendChild(draggedEl);
+            }
+            
+            this.saveState();
+            this.renderStructureTree();
+            // Also sync code
+            this.updateCode();
+        });
+    },
+
+    refreshFileTree: function() {
+        // Get path from localStorage or default
+        // We set this in startNewProject (need to update that too)
+        // For now, let's assume we have it or ask user
+        let path = localStorage.getItem('vuc_project_path');
+        if (!path) {
+            path = '~/projects'; // Default root
+        }
+        
+        const container = document.getElementById('file-tree');
+        if (!container) return;
+        
+        container.innerHTML = '<div style="color:#888; padding:5px;">Loading...</div>';
+        
+        this.fetchFiles(path, container);
+    },
+    
+    fetchFiles: function(path, container) {
+        fetch('/api/list_files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                container.innerHTML = `<div style="color:red; padding:5px;">Error: ${data.error}</div>`;
+                return;
+            }
+            this.renderFileItems(data.items, container);
+        })
+        .catch(err => {
+            container.innerHTML = `<div style="color:red; padding:5px;">Connection Error</div>`;
+        });
+    },
+    
+    renderFileItems: function(items, container) {
+        container.innerHTML = '';
+        if (items.length === 0) {
+            container.innerHTML = '<div style="color:#666; font-style:italic; padding:5px;">Empty directory</div>';
+            return;
+        }
+        
+        const list = document.createElement('ul');
+        // Styles moved to vscode-explorer.css (#file-tree ul)
+        
+        items.forEach(item => {
+            const li = document.createElement('li');
+            li.style.margin = '0';
+            
+            const row = document.createElement('div');
+            row.className = 'file-row';
+            // Inline styles removed in favor of vscode-explorer.css
+            
+            // Icon Logic
+            const icon = document.createElement('i');
+            if (item.type === 'dir') {
+                icon.className = 'fas fa-folder';
+                // Color handled by CSS
+            } else {
+                // File icons with specific classes for CSS coloring
+                if (item.name.endsWith('.html')) { icon.className = 'fab fa-html5 file-icon html'; }
+                else if (item.name.endsWith('.css')) { icon.className = 'fab fa-css3-alt file-icon css'; }
+                else if (item.name.endsWith('.js')) { icon.className = 'fab fa-js file-icon js'; }
+                else if (item.name.endsWith('.ts')) { icon.className = 'fas fa-file-code file-icon ts'; }
+                else if (item.name.endsWith('.json')) { icon.className = 'fas fa-file-code file-icon json'; }
+                else if (item.name.endsWith('.py')) { icon.className = 'fab fa-python file-icon py'; }
+                else if (item.name.match(/\.(jpg|jpeg|png|gif|svg)$/i)) { icon.className = 'fas fa-image file-icon img'; }
+                else { icon.className = 'fas fa-file file-icon'; }
+            }
+            
+            const label = document.createElement('span');
+            label.innerText = item.name;
+            // Flex 1 handled by CSS (.file-row span)
+            
+            row.appendChild(icon);
+            row.appendChild(label);
+
+            // Add Actions for Directory (Hidden by default, shown on hover via CSS)
+            if (item.type === 'dir') {
+                 const actions = document.createElement('div');
+                 actions.className = 'row-actions'; // CSS handles display:none -> flex on hover
+                 
+                 const addFileBtn = document.createElement('i');
+                 addFileBtn.className = 'fas fa-file-circle-plus';
+                 addFileBtn.title = 'New File';
+                 addFileBtn.onclick = (e) => {
+                     e.stopPropagation();
+                     this.createNewFile(item.path);
+                 };
+
+                 const addFolderBtn = document.createElement('i');
+                 addFolderBtn.className = 'fas fa-folder-plus';
+                 addFolderBtn.title = 'New Folder';
+                 addFolderBtn.onclick = (e) => {
+                     e.stopPropagation();
+                     this.createNewFolder(item.path);
+                 };
+                 
+                 actions.appendChild(addFileBtn);
+                 actions.appendChild(addFolderBtn);
+                 row.appendChild(actions);
+            }
+
+            li.appendChild(row);
+            
+            if (item.type === 'dir') {
+                // Container for children
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'sub-tree';
+                
+                // Check expanded state
+                if (this.expandedPaths.has(item.path)) {
+                    childrenContainer.style.display = 'block';
+                    icon.className = 'fas fa-folder-open';
+                    // Auto-fetch children
+                    this.fetchFiles(item.path, childrenContainer);
+                } else {
+                    childrenContainer.style.display = 'none';
+                }
+
+                li.appendChild(childrenContainer);
+                
+                row.onclick = (e) => {
+                    e.stopPropagation();
+                    // Toggle Selection
+                    document.querySelectorAll('.file-row').forEach(r => r.classList.remove('selected'));
+                    row.classList.add('selected');
+
+                    if (childrenContainer.style.display === 'none') {
+                        childrenContainer.style.display = 'block';
+                        icon.className = 'fas fa-folder-open';
+                        this.expandedPaths.add(item.path); // Remember expanded
+                        this.saveExpandedPaths();
+                        
+                        // Fetch if empty
+                        if (childrenContainer.children.length === 0) {
+                            childrenContainer.innerHTML = '<div style="padding-left:20px; color:#666;">Loading...</div>';
+                            this.fetchFiles(item.path, childrenContainer);
+                        }
+                    } else {
+                        childrenContainer.style.display = 'none';
+                        icon.className = 'fas fa-folder';
+                        this.expandedPaths.delete(item.path); // Forget expanded
+                        this.saveExpandedPaths();
+                    }
+                };
+            } else {
+                // File Click
+                row.onclick = (e) => {
+                    e.stopPropagation();
+                    // Toggle Selection
+                    document.querySelectorAll('.file-row').forEach(r => r.classList.remove('selected'));
+                    row.classList.add('selected');
+
+                    this.openFile(item.path);
+                };
+            }
+            
+            list.appendChild(li);
+        });
+        
+        container.appendChild(list);
+    },
+    
+    saveExpandedPaths: function() {
+        localStorage.setItem('vuc_expanded_paths', JSON.stringify(Array.from(this.expandedPaths)));
+    },
+
+    openFile: function(path) {
+        fetch('/api/read_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                this.logConsole('Error opening file: ' + data.error, 'error');
+                return;
+            }
+            
+            // Determine type
+            const ext = path.split('.').pop().toLowerCase();
+            
+            if (ext === 'html') {
+                // Load into Monaco (if we have a generic one) or specific
+                // Current app structure has:
+                // - Builder.canvas (visual)
+                // - Code Editor (monaco) syncing with canvas
+                // If we open a file, we should probably update the editor.
+                if (window.monacoEditor) {
+                    window.monacoEditor.setValue(data.content);
+                    // Also update visual if it's the main file? 
+                    // Or just let user click "Run" / "Sync"?
+                    // Current logic: Editor input -> syncCodeToCanvas.
+                    // So setting value triggers nothing unless we call sync.
+                    this.syncCodeToCanvas(); 
+                }
+                this.logConsole(`Opened ${path}`, 'success');
+            } else if (ext === 'css') {
+                 // Load into CSS panel or style tag?
+                 // For now, let's log. We need a CSS editor.
+                 // The user asked for "JS Files: In static HTML projects, there must be support for a file or tab of type .js."
+                 // This implies we need a JS editor tab.
+                 // We have `scriptEditor` in `initMonaco`?
+                 this.logConsole(`Opened CSS file ${path}. (CSS Editor not fully integrated yet)`, 'info');
+                 // TODO: Load into CSS editor if available
+            } else if (ext === 'js' || ext === 'ts') {
+                 if (window.scriptEditor) {
+                     window.scriptEditor.setValue(data.content);
+                     this.switchSidebar('js'); // Switch to JS tab
+                     this.logConsole(`Opened ${path}`, 'success');
+                 }
+            } else {
+                 this.logConsole(`Opened ${path} (Read-only)`, 'info');
+            }
+        });
     },
 
     loadAssets: async function() {
@@ -1518,6 +2616,24 @@ Views:
                 if (e.key === '3' || e.key === 'j') { e.preventDefault(); this.switchSidebar('js'); }
             }
 
+            // Select All: Ctrl+A
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                // Allow default behavior in inputs/textareas
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                
+                e.preventDefault();
+                if (Builder) Builder.selectAll();
+            }
+
+            // Deselect: Esc
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (Builder) Builder.deselectAll();
+                // Also close modals if open
+                this.closeModal();
+                this.closeColorStudio();
+            }
+
             // Undo: Ctrl+Z
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
                 e.preventDefault();
@@ -1681,11 +2797,13 @@ Views:
 
         if (!el) {
             container.innerHTML = '<div class="no-selection">Select an element to edit properties</div>';
+            this.renderStructureTree(); // Clear selection in tree
             return;
         }
 
         // Highlight in Code View
         this.highlightCodeForElement(el);
+        this.renderStructureTree(); // Update selection in tree
 
         const createGroup = (title, inputs) => {
             const group = document.createElement('div');
@@ -2032,6 +3150,7 @@ Views:
             }
             
             Builder.loadHTML(bodyContent);
+            this.renderStructureTree();
             
             // Debounce save
             this.saveStateDebounced();
@@ -2144,6 +3263,7 @@ ${html}
             this.updateCode();
             this.updateUndoRedoButtons();
             Builder.deselectElement();
+            this.renderStructureTree();
         }
     },
 
@@ -2154,6 +3274,7 @@ ${html}
             this.updateCode();
             this.updateUndoRedoButtons();
             Builder.deselectElement();
+            this.renderStructureTree();
         }
     },
 

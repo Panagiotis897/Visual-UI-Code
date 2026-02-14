@@ -1,0 +1,152 @@
+
+/* --- VS Code File Explorer Theme --- */
+
+/* Sidebar Section Headers (e.g., "EXPLORER", "OPEN EDITORS") */
+.explorer-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px; /* VS Code padding */
+    height: 22px;   /* VS Code height */
+    background-color: var(--bg-sidebar); /* Matches sidebar */
+    color: #bbbbbb; /* Lighter text */
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+}
+
+.explorer-section-header:hover {
+    color: #ffffff;
+}
+
+.explorer-section-header i {
+    font-size: 12px;
+    width: 16px;
+    text-align: center;
+    transition: transform 0.1s;
+    cursor: pointer; /* Ensure clickable */
+}
+
+.explorer-section-header.collapsed i {
+    transform: rotate(-90deg);
+}
+
+/* File Tree Container */
+#file-tree {
+    padding: 0;
+    margin: 0;
+    font-family: 'Segoe WPC', 'Segoe UI', sans-serif; /* VS Code font stack */
+    overflow-y: auto;
+    height: calc(100% - 22px); /* Subtract header height */
+}
+
+#file-tree ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* Sub-tree Indentation */
+.sub-tree {
+    padding-left: 10px; /* Indentation per level */
+    border-left: 1px solid #333; /* Guide line */
+    margin-left: 6px;
+}
+
+/* File/Folder Row */
+.file-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    padding: 3px 0; /* Vertical padding */
+    color: #cccccc;
+    font-size: 13px;
+    line-height: 22px; /* Standard VS Code row height */
+    border: 1px solid transparent; /* For focus border */
+    position: relative;
+    user-select: none;
+}
+
+.file-row:hover {
+    background-color: #2a2d2e; /* VS Code hover */
+}
+
+.file-row.selected {
+    background-color: #37373d; /* VS Code selected */
+    color: #ffffff;
+}
+
+.file-row.focused {
+    border-color: #007acc; /* VS Code focus border */
+}
+
+/* Icons */
+.file-row i.fa-folder,
+.file-row i.fa-folder-open {
+    color: #dcb67a !important; /* VS Code folder yellow */
+    font-size: 14px;
+    width: 16px;
+    text-align: center;
+}
+
+.file-row i.file-icon {
+    font-size: 14px;
+    width: 16px;
+    text-align: center;
+}
+
+/* Specific File Type Colors (matching VS Code Material Icon Theme roughly) */
+.file-icon.html { color: #e34c26; }
+.file-icon.css { color: #42a5f5; }
+.file-icon.js { color: #f1e05a; }
+.file-icon.ts { color: #2b7489; }
+.file-icon.json { color: #cbcb41; }
+.file-icon.py { color: #3572a5; }
+.file-icon.img { color: #a074c4; }
+
+/* Text Label */
+.file-row span {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Action Buttons (New File/Folder) - Only show on hover */
+.file-row .row-actions {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding-right: 8px;
+    z-index: 10; /* Ensure it's above other elements if needed */
+}
+
+.file-row:hover .row-actions {
+    display: flex;
+}
+
+.row-actions i {
+    color: #cccccc;
+    font-size: 12px;
+    opacity: 0.7;
+    transition: opacity 0.1s;
+    cursor: pointer; /* Ensure pointer cursor */
+}
+
+.row-actions i:hover {
+    color: #ffffff;
+    opacity: 1;
+}
+
+/* Indentation Guide (Optional) */
+.tree-indent-guide {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: #404040;
+}

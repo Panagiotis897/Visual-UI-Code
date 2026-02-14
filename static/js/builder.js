@@ -1,5 +1,5 @@
 const Builder = {
-    selectedElement: null,
+    selectedElements: [],
     draggedType: null,
     canvas: null,
 
@@ -117,17 +117,40 @@ const Builder = {
             
             // Determine drop target (canvas or nested element)
             let target = e.target;
-            if (target === this.canvas || target.closest('.preview-canvas')) {
-                // If dropped on an existing element in canvas, append to it if it's a container
-                // Otherwise append to parent or canvas
-                if (!target.classList.contains('preview-canvas') && !this.isContainer(target)) {
+            
+            // If dropped on an existing element in canvas
+            if (target !== this.canvas && !target.classList.contains('preview-canvas')) {
+                // If it's not a container, go to parent
+                if (!this.isContainer(target)) {
                     target = target.parentElement;
                 }
             } else {
                 target = this.canvas;
             }
+            
+            // Check if we have a selected container and we dropped on the canvas (not specifically on another element)
+            // The user asked: "Divs must be draggable onto the code or onto selected objects."
+            // If I drop "loosely" on the canvas, but I have a container selected, maybe it should go there?
+            // Standard behavior is usually "drop where you point". 
+            // However, let's respect the "onto selected objects" if the drop target is the generic canvas 
+            // and we have exactly one container selected.
+            if ((target === this.canvas || target.classList.contains('preview-canvas')) && 
+                this.selectedElements.length === 1 && 
+                this.isContainer(this.selectedElements[0])) {
+                target = this.selectedElements[0];
+            }
 
             const type = e.dataTransfer.getData('text/plain');
+            // Handle color drop
+            if (type.startsWith('color:')) {
+                const color = type.split(':')[1];
+                if (target !== this.canvas) {
+                    target.style.backgroundColor = color;
+                    if (window.App) window.App.saveState();
+                }
+                return;
+            }
+
             if (type === 'saved-block') {
                 const blockId = e.dataTransfer.getData('application/vuc-block-id');
                 this.createSavedBlock(blockId, target);
@@ -149,19 +172,7 @@ const Builder = {
         const temp = document.createElement('div');
         temp.innerHTML = block.html;
         
-        // The saved html might be a single element or multiple
-        // We usually expect a single root element from saveCurrentBlock
-        // but let's handle children
         Array.from(temp.children).forEach(child => {
-            // Re-generate ID to avoid duplicates if dropped multiple times
-            // But we might want to keep internal structure IDs?
-            // For now, let's just append
-            
-            // We need to ensure it has 'dropped-element' class
-            // The saved HTML might already have it, but let's make sure
-            // and recursively add it if missing?
-            // Actually, loadHTML logic is better
-            
             const clone = child.cloneNode(true);
             
             // Recursive class adder
@@ -187,22 +198,22 @@ const Builder = {
     setupCanvasInteractions: function() {
         this.canvas.addEventListener('click', (e) => {
             // Prevent triggering if clicking on canvas background (unless we want to deselect)
-            if (e.target === this.canvas) {
-                this.deselectElement();
+            if (e.target === this.canvas || e.target.classList.contains('preview-canvas')) {
+                this.deselectAll();
                 return;
             }
             
-            // Find the closest selectable element
-            // We assume all direct children or nested children created by builder are selectable
-            // We can mark them with a class or just check if they are inside canvas
             e.stopPropagation();
-            this.selectElement(e.target);
+            
+            // Multi-select with Ctrl or Meta (Cmd)
+            const multi = e.ctrlKey || e.metaKey;
+            this.selectElement(e.target, multi);
         });
     },
 
     isContainer: function(element) {
         // Define which tags can contain other elements
-        const voidTags = ['img', 'input', 'hr', 'br'];
+        const voidTags = ['img', 'input', 'hr', 'br', 'meta', 'link'];
         return !voidTags.includes(element.tagName.toLowerCase());
     },
 
@@ -211,8 +222,6 @@ const Builder = {
             target.style.outline = '2px dashed #007acc';
         } else {
             target.style.outline = '2px dashed #007acc';
-            // Stop propagation of highlight if nested? 
-            // Actually CSS hover might be better, but for DnD we need JS
         }
     },
 
@@ -265,23 +274,59 @@ const Builder = {
         if (window.App) window.App.saveState();
     },
 
-    selectElement: function(el) {
-        if (this.selectedElement) {
-            this.selectedElement.classList.remove('selected');
+    selectElement: function(el, multi = false) {
+        if (!multi) {
+            this.deselectAll();
         }
-        this.selectedElement = el;
-        el.classList.add('selected');
+
+        if (this.selectedElements.includes(el)) {
+            // If already selected and multi, toggle off
+            if (multi) {
+                el.classList.remove('selected');
+                this.selectedElements = this.selectedElements.filter(e => e !== el);
+                // Update Inspector
+                if (window.App) {
+                     if (this.selectedElements.length === 1) {
+                         window.App.updatePropertyInspector(this.selectedElements[0]);
+                     } else if (this.selectedElements.length > 1) {
+                         window.App.updatePropertyInspector(null, this.selectedElements.length);
+                     } else {
+                         window.App.updatePropertyInspector(null);
+                     }
+                }
+                return;
+            }
+            // If single select and already selected, do nothing (keep selected)
+        } else {
+            this.selectedElements.push(el);
+            el.classList.add('selected');
+        }
         
         // Update Property Inspector
-        if (window.App) window.App.updatePropertyInspector(el);
+        if (window.App) {
+            if (this.selectedElements.length === 1) {
+                window.App.updatePropertyInspector(this.selectedElements[0]);
+            } else {
+                window.App.updatePropertyInspector(null, this.selectedElements.length);
+            }
+        }
     },
 
-    deselectElement: function() {
-        if (this.selectedElement) {
-            this.selectedElement.classList.remove('selected');
-            this.selectedElement = null;
-        }
+    deselectAll: function() {
+        this.selectedElements.forEach(el => el.classList.remove('selected'));
+        this.selectedElements = [];
         if (window.App) window.App.updatePropertyInspector(null);
+    },
+    
+    // Select all elements in the canvas
+    selectAll: function() {
+        const all = this.canvas.querySelectorAll('.dropped-element');
+        this.deselectAll(); // Clear first
+        all.forEach(el => {
+            el.classList.add('selected');
+            this.selectedElements.push(el);
+        });
+        if (window.App) window.App.updatePropertyInspector(null, this.selectedElements.length);
     },
 
     // Helper to get current DOM as string
@@ -317,5 +362,6 @@ const Builder = {
             Array.from(element.children).forEach(rehydrate);
         };
         Array.from(this.canvas.children).forEach(rehydrate);
+        this.selectedElements = []; // Clear selection on load
     }
 };

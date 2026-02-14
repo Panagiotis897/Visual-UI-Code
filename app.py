@@ -67,6 +67,146 @@ def run_command():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/create_project', methods=['POST'])
+def create_project():
+    data = request.json
+    name = data.get('name')
+    path = data.get('path', '~/projects')
+    project_type = data.get('type', 'static')
+    transpiler = data.get('transpiler') # 'bun', 'tsc'
+
+    if not name:
+        return jsonify({'error': 'Project name is required'}), 400
+
+    # Expand user path
+    base_path = os.path.expanduser(path)
+    project_path = os.path.join(base_path, name)
+
+    try:
+        os.makedirs(project_path, exist_ok=True)
+        
+        # Create basic files
+        index_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{}</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <h1>Welcome to {}</h1>
+    </div>
+    <script src="{}"></script>
+</body>
+</html>""".format(name, name, 'main.js' if project_type != 'ts' else 'main.ts') # Simple assumption for now
+
+        style_content = """body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f0f0f0;
+}
+h1 { color: #333; }
+"""
+
+        script_content = """console.log('Project {} initialized');
+""".format(name)
+
+        with open(os.path.join(project_path, 'index.html'), 'w') as f:
+            f.write(index_content)
+        
+        with open(os.path.join(project_path, 'style.css'), 'w') as f:
+            f.write(style_content)
+
+        if project_type == 'ts':
+            with open(os.path.join(project_path, 'main.ts'), 'w') as f:
+                f.write(script_content)
+            
+            # Create tsconfig.json
+            tsconfig = {
+                "compilerOptions": {
+                    "target": "es6",
+                    "module": "commonjs",
+                    "strict": True,
+                    "esModuleInterop": True,
+                    "skipLibCheck": True,
+                    "forceConsistentCasingInFileNames": True
+                }
+            }
+            import json
+            with open(os.path.join(project_path, 'tsconfig.json'), 'w') as f:
+                json.dump(tsconfig, f, indent=4)
+            
+            if transpiler == 'bun':
+                # Create a basic package.json for Bun
+                package_json = {
+                    "name": name.lower().replace(' ', '-'),
+                    "module": "index.ts",
+                    "type": "module",
+                    "devDependencies": {
+                        "bun-types": "latest"
+                    }
+                }
+                with open(os.path.join(project_path, 'package.json'), 'w') as f:
+                    json.dump(package_json, f, indent=4)
+
+        else:
+            with open(os.path.join(project_path, 'main.js'), 'w') as f:
+                f.write(script_content)
+
+        return jsonify({'success': True, 'path': project_path})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/list_files', methods=['POST'])
+def list_files():
+    data = request.json
+    path = data.get('path')
+    
+    if not path:
+        return jsonify({'error': 'Path is required'}), 400
+
+    full_path = os.path.expanduser(path)
+    
+    if not os.path.exists(full_path):
+        return jsonify({'error': 'Path does not exist'}), 404
+
+    try:
+        items = []
+        for item in os.listdir(full_path):
+            item_path = os.path.join(full_path, item)
+            is_dir = os.path.isdir(item_path)
+            items.append({
+                'name': item,
+                'type': 'dir' if is_dir else 'file',
+                'path': item_path # full path for next request
+            })
+        
+        # Sort: directories first, then files
+        items.sort(key=lambda x: (x['type'] != 'dir', x['name'].lower()))
+        
+        return jsonify({'items': items, 'path': full_path})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/read_file', methods=['POST'])
+def read_file():
+    data = request.json
+    path = data.get('path')
+    
+    if not path:
+        return jsonify({'error': 'Path is required'}), 400
+        
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({'content': content})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/save_file', methods=['POST'])
 def save_file():
     data = request.json
@@ -80,6 +220,26 @@ def save_file():
     try:
         with open(filename, 'w') as f:
             f.write(content)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/create_folder', methods=['POST'])
+def create_folder():
+    data = request.json
+    path = data.get('path')
+    
+    if not path:
+        return jsonify({'error': 'Path is required'}), 400
+        
+    full_path = os.path.expanduser(path)
+    
+    # Basic path traversal protection
+    if '..' in path:
+         return jsonify({'error': 'Invalid path'}), 400
+
+    try:
+        os.makedirs(full_path, exist_ok=True)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
