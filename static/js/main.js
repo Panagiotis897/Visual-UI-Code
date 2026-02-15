@@ -1789,6 +1789,9 @@ Views:
         const root = document.getElementById('preview-canvas'); // Or Builder.canvas
         if (!root) return;
         
+        // Ensure collapsed set exists
+        this.collapsedElements = this.collapsedElements || new WeakSet();
+        
         // Helper to build tree
         const buildTree = (element, depth = 0) => {
             // Skip internal elements if any
@@ -1814,6 +1817,28 @@ Views:
                 item.style.backgroundColor = '#007acc';
                 item.style.color = '#fff';
             }
+            
+            // Toggle / Icon Container
+            const toggle = document.createElement('span');
+            toggle.style.width = '16px';
+            toggle.style.display = 'inline-block';
+            toggle.style.textAlign = 'center';
+            toggle.style.cursor = 'pointer';
+            
+            if (element.children.length > 0) {
+                const isCollapsed = this.collapsedElements.has(element);
+                toggle.innerHTML = `<i class="fas fa-chevron-${isCollapsed ? 'right' : 'down'}" style="font-size: 10px;"></i>`;
+                toggle.onclick = (e) => {
+                    e.stopPropagation();
+                    if (this.collapsedElements.has(element)) {
+                        this.collapsedElements.delete(element);
+                    } else {
+                        this.collapsedElements.add(element);
+                    }
+                    this.renderStructureTree();
+                };
+            }
+            item.appendChild(toggle);
             
             // Icon
             const tagName = element.tagName.toLowerCase();
@@ -1851,12 +1876,16 @@ Views:
                 e.stopPropagation();
                 // Shine on preview
                 Builder.highlightDropTarget(element);
-                item.style.backgroundColor = Builder.selectedElements.includes(element) ? '#007acc' : '#2a2d2e';
+                if (!Builder.selectedElements.includes(element)) {
+                     item.style.backgroundColor = '#2a2d2e';
+                }
             };
             item.onmouseout = (e) => {
                 e.stopPropagation();
                 Builder.removeHighlight(element);
-                item.style.backgroundColor = Builder.selectedElements.includes(element) ? '#007acc' : 'transparent';
+                if (!Builder.selectedElements.includes(element)) {
+                     item.style.backgroundColor = 'transparent';
+                }
             };
             item.onclick = (e) => {
                 e.stopPropagation();
@@ -1877,7 +1906,9 @@ Views:
             container.appendChild(item);
             
             // Children
-            Array.from(element.children).forEach(child => buildTree(child, depth + 1));
+            if (!this.collapsedElements.has(element)) {
+                Array.from(element.children).forEach(child => buildTree(child, depth + 1));
+            }
         };
         
         buildTree(root);
@@ -2129,6 +2160,49 @@ Views:
         });
     },
     
+    deleteFile: function(path) {
+        if (!confirm(`Are you sure you want to delete ${path}?`)) return;
+        
+        fetch('/api/delete_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) this.logConsole('Error deleting file: ' + data.error, 'error');
+            else {
+                this.logConsole(`Deleted ${path}`, 'success');
+                this.refreshFileTree();
+            }
+        });
+    },
+
+    renameFile: function(oldPath) {
+        const newName = prompt('Enter new name:', oldPath.split(/[/\\]/).pop());
+        if (!newName) return;
+        
+        // Construct new path
+        const sep = oldPath.includes('\\') ? '\\' : '/';
+        const parts = oldPath.split(sep);
+        parts.pop();
+        const newPath = parts.join(sep) + sep + newName;
+        
+        fetch('/api/rename_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_path: oldPath, new_path: newPath })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) this.logConsole('Error renaming file: ' + data.error, 'error');
+            else {
+                this.logConsole(`Renamed to ${newName}`, 'success');
+                this.refreshFileTree();
+            }
+        });
+    },
+
     renderFileItems: function(items, container) {
         container.innerHTML = '';
         if (items.length === 0) {
@@ -2137,7 +2211,6 @@ Views:
         }
         
         const list = document.createElement('ul');
-        // Styles moved to vscode-explorer.css (#file-tree ul)
         
         items.forEach(item => {
             const li = document.createElement('li');
@@ -2145,15 +2218,12 @@ Views:
             
             const row = document.createElement('div');
             row.className = 'file-row';
-            // Inline styles removed in favor of vscode-explorer.css
             
             // Icon Logic
             const icon = document.createElement('i');
             if (item.type === 'dir') {
                 icon.className = 'fas fa-folder';
-                // Color handled by CSS
             } else {
-                // File icons with specific classes for CSS coloring
                 if (item.name.endsWith('.html')) { icon.className = 'fab fa-html5 file-icon html'; }
                 else if (item.name.endsWith('.css')) { icon.className = 'fab fa-css3-alt file-icon css'; }
                 else if (item.name.endsWith('.js')) { icon.className = 'fab fa-js file-icon js'; }
@@ -2166,36 +2236,44 @@ Views:
             
             const label = document.createElement('span');
             label.innerText = item.name;
-            // Flex 1 handled by CSS (.file-row span)
             
             row.appendChild(icon);
             row.appendChild(label);
 
-            // Add Actions for Directory (Hidden by default, shown on hover via CSS)
+            // Row Actions (New File/Folder, Rename, Delete)
+            const actions = document.createElement('div');
+            actions.className = 'row-actions';
+            
             if (item.type === 'dir') {
-                 const actions = document.createElement('div');
-                 actions.className = 'row-actions'; // CSS handles display:none -> flex on hover
-                 
                  const addFileBtn = document.createElement('i');
                  addFileBtn.className = 'fas fa-file-circle-plus';
                  addFileBtn.title = 'New File';
-                 addFileBtn.onclick = (e) => {
-                     e.stopPropagation();
-                     this.createNewFile(item.path);
-                 };
+                 addFileBtn.onclick = (e) => { e.stopPropagation(); this.createNewFile(item.path); };
 
                  const addFolderBtn = document.createElement('i');
                  addFolderBtn.className = 'fas fa-folder-plus';
                  addFolderBtn.title = 'New Folder';
-                 addFolderBtn.onclick = (e) => {
-                     e.stopPropagation();
-                     this.createNewFolder(item.path);
-                 };
+                 addFolderBtn.onclick = (e) => { e.stopPropagation(); this.createNewFolder(item.path); };
                  
                  actions.appendChild(addFileBtn);
                  actions.appendChild(addFolderBtn);
-                 row.appendChild(actions);
             }
+            
+            const renameBtn = document.createElement('i');
+            renameBtn.className = 'fas fa-pencil-alt'; 
+            renameBtn.title = 'Rename';
+            renameBtn.onclick = (e) => { e.stopPropagation(); this.renameFile(item.path); };
+            
+            const deleteBtn = document.createElement('i');
+            deleteBtn.className = 'fas fa-trash-alt';
+            deleteBtn.title = 'Delete';
+            deleteBtn.style.color = '#cc6666';
+            deleteBtn.onclick = (e) => { e.stopPropagation(); this.deleteFile(item.path); };
+
+            actions.appendChild(renameBtn);
+            actions.appendChild(deleteBtn);
+            
+            row.appendChild(actions);
 
             li.appendChild(row);
             
@@ -2279,32 +2357,22 @@ Views:
             const ext = path.split('.').pop().toLowerCase();
             
             if (ext === 'html') {
-                // Load into Monaco (if we have a generic one) or specific
-                // Current app structure has:
-                // - Builder.canvas (visual)
-                // - Code Editor (monaco) syncing with canvas
-                // If we open a file, we should probably update the editor.
                 if (window.monacoEditor) {
                     window.monacoEditor.setValue(data.content);
-                    // Also update visual if it's the main file? 
-                    // Or just let user click "Run" / "Sync"?
-                    // Current logic: Editor input -> syncCodeToCanvas.
-                    // So setting value triggers nothing unless we call sync.
-                    this.syncCodeToCanvas(); 
+                    // Sync to Visual Builder
+                    Builder.loadHTML(data.content); 
+                    this.renderStructureTree();
+                    
+                    // Switch to Structure Tree Tab
+                    this.switchSidebar('structure');
                 }
                 this.logConsole(`Opened ${path}`, 'success');
             } else if (ext === 'css') {
-                 // Load into CSS panel or style tag?
-                 // For now, let's log. We need a CSS editor.
-                 // The user asked for "JS Files: In static HTML projects, there must be support for a file or tab of type .js."
-                 // This implies we need a JS editor tab.
-                 // We have `scriptEditor` in `initMonaco`?
                  this.logConsole(`Opened CSS file ${path}. (CSS Editor not fully integrated yet)`, 'info');
-                 // TODO: Load into CSS editor if available
             } else if (ext === 'js' || ext === 'ts') {
                  if (window.scriptEditor) {
                      window.scriptEditor.setValue(data.content);
-                     this.switchSidebar('js'); // Switch to JS tab
+                     this.switchBottomPanel('script'); // Switch to Script Editor Panel
                      this.logConsole(`Opened ${path}`, 'success');
                  }
             } else {
@@ -3368,5 +3436,5 @@ ${html}
     }
 };
 
-window.onload = () => App.init();
 window.App = App;
+window.onload = () => App.init();

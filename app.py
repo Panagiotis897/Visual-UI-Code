@@ -244,5 +244,66 @@ def create_folder():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/create_file', methods=['POST'])
+def create_file():
+    data = request.json
+    path = data.get('path')
+    
+    if not path:
+        return jsonify({'error': 'Path is required'}), 400
+        
+    full_path = os.path.expanduser(path)
+    
+    if '..' in path:
+         return jsonify({'error': 'Invalid path'}), 400
+
+    try:
+        # Create parent directories if they don't exist
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        with open(full_path, 'w') as f:
+            f.write('') # Create empty file
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delete_file', methods=['POST'])
+def delete_file():
+    data = request.json
+    path = data.get('path')
+    
+    if not path:
+        return jsonify({'error': 'Path is required'}), 400
+        
+    full_path = os.path.expanduser(path)
+    
+    try:
+        if os.path.isdir(full_path):
+            import shutil
+            shutil.rmtree(full_path)
+        else:
+            os.remove(full_path)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/rename_file', methods=['POST'])
+def rename_file():
+    data = request.json
+    old_path = data.get('old_path')
+    new_path = data.get('new_path')
+    
+    if not old_path or not new_path:
+        return jsonify({'error': 'Both paths are required'}), 400
+        
+    full_old_path = os.path.expanduser(old_path)
+    full_new_path = os.path.expanduser(new_path)
+    
+    try:
+        os.rename(full_old_path, full_new_path)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

@@ -105,10 +105,17 @@
                     <div class="explorer-section-header">
                         <span id="explorer-project-name"><i class="fas fa-chevron-down"></i> &nbsp; EXPLORER</span>
                         <div style="display:flex; gap:8px; padding-right:5px;">
-                            <i class="fas fa-file-circle-plus" onclick="App.createNewFile()" title="New File" style="cursor:pointer; font-size:12px;"></i>
-                            <i class="fas fa-folder-plus" onclick="App.createNewFolder()" title="New Folder" style="cursor:pointer; font-size:12px;"></i>
                             <i class="fas fa-sync-alt" onclick="App.refreshFileTree()" title="Refresh" style="cursor:pointer; font-size:12px;"></i>
                         </div>
+                    </div>
+                    <!-- Action Bar -->
+                    <div style="display:flex; gap:5px; padding:8px 10px; border-bottom:1px solid var(--border-color); background-color: var(--bg-sidebar);">
+                        <button onclick="App.createNewFile()" title="Create New File" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; padding:6px; font-size:12px; background-color:var(--bg-input); border:1px solid var(--border-color); color:var(--text-primary); cursor:pointer; border-radius:2px;">
+                            <i class="fas fa-file-circle-plus" style="color:var(--text-accent);"></i> New File
+                        </button>
+                        <button onclick="App.createNewFolder()" title="Create New Folder" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; padding:6px; font-size:12px; background-color:var(--bg-input); border:1px solid var(--border-color); color:var(--text-primary); cursor:pointer; border-radius:2px;">
+                            <i class="fas fa-folder-plus" style="color:#dcb67a;"></i> New Folder
+                        </button>
                     </div>
                     <div id="file-tree" class="file-tree-container">
                         <!-- JS populated -->
