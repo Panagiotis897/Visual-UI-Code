@@ -1639,14 +1639,14 @@ Views:
     },
 
     switchSidebar: function(tab) {
-        // Handle 'components' legacy call
-        if (tab === 'components') tab = 'html';
+        // Handle 'components' legacy call by mapping to 'structure'
+        if (tab === 'components') tab = 'structure';
+        if (tab === 'html') tab = 'structure'; // Map HTML tab to structure (merged)
 
         // Toggle active button
         const buttons = document.querySelectorAll('.sidebar-tabs button');
         buttons.forEach(b => {
-             if (b.dataset.tab === tab) b.classList.add('active');
-             else b.classList.remove('active');
+             b.classList.remove('active');
         });
         
         // Hide all content sections
@@ -1657,6 +1657,10 @@ Views:
         const activeEl = document.getElementById('sidebar-content-' + tab);
         if (activeEl) {
             activeEl.style.display = 'flex';
+            
+            // Highlight tab button
+            const btn = document.getElementById('tab-' + tab);
+            if (btn) btn.classList.add('active');
         }
         
         if (tab === 'assets') this.loadAssets();
@@ -1756,6 +1760,28 @@ Views:
         container.innerHTML = '';
         const root = document.getElementById('preview-canvas'); 
         if (!root) return;
+
+        // Container Drop Zone (Append to Root)
+        container.ondragover = (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            container.style.backgroundColor = 'rgba(0, 122, 204, 0.1)';
+        };
+        container.ondragleave = (e) => {
+            e.preventDefault();
+            container.style.backgroundColor = '';
+        };
+        container.ondrop = (e) => {
+            e.preventDefault();
+            container.style.backgroundColor = '';
+            const type = e.dataTransfer.getData('text/plain');
+            if (type) {
+                Builder.createElement(type, root);
+                this.saveState();
+                this.updateCode();
+                this.renderStructureTree();
+            }
+        };
         
         // Ensure collapsed set exists
         this.collapsedElements = this.collapsedElements || new WeakSet();
@@ -1826,7 +1852,7 @@ Views:
             icon.style.color = '#dcb67a';
             item.appendChild(icon);
             
-            // Label (Full Tag Info)
+            // Label (Full Tag Info + Content)
             const label = document.createElement('span');
             let labelText = `<span style="color:#569cd6">${tagName}</span>`;
             if (element.id) labelText += `<span style="color:#9cdcfe">#${element.id}</span>`;
@@ -1834,6 +1860,26 @@ Views:
                  const classes = element.className.replace('selected', '').replace('dropped-element', '').trim();
                  if (classes) labelText += `<span style="color:#ce9178">.${classes.replace(/\s+/g, '.')}</span>`;
             }
+
+            // Show Text Content (User Request)
+            // Prioritize direct text node content
+            let textContent = '';
+            for (let node of element.childNodes) {
+                if (node.nodeType === 3 && node.nodeValue.trim()) {
+                    textContent = node.nodeValue.trim();
+                    break;
+                }
+            }
+            // Fallback to innerText if no direct text but short
+            if (!textContent && element.children.length === 0 && element.innerText) {
+                textContent = element.innerText;
+            }
+
+            if (textContent) {
+                if (textContent.length > 25) textContent = textContent.substring(0, 25) + '...';
+                labelText += ` <span style="color:#888; font-style:italic; margin-left:5px;">"${textContent}"</span>`;
+            }
+
             label.innerHTML = labelText; // Use innerHTML for coloring
             label.style.flex = '1';
             label.style.whiteSpace = 'nowrap';
@@ -2213,6 +2259,12 @@ Views:
         container.innerHTML = '<div style="color:#888; padding:5px;">Loading...</div>';
         
         this.fetchFiles(path, container);
+        
+        // Update Structure File Selector
+        if (path && path !== '~/projects') {
+             this.currentProjectPath = path;
+             this.populateStructureFileSelect();
+        }
     },
     
     fetchFiles: function(path, container) {
