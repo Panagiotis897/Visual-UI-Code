@@ -5,6 +5,7 @@ const App = {
     saveTimeout: null,
     isUpdatingCode: false,
     expandedPaths: new Set(), // Track expanded folders
+    currentFilePath: null,
 
     init: function() {
         // Load expanded paths
@@ -30,6 +31,8 @@ const App = {
         this.setupResizers();
         this.loadLayout();
         this.initColorStudio();
+        this.initStructureFileSelect();
+        this.setupGlobalShortcuts();
         
         // Load File Tree if project path exists
         if (this.currentProjectPath) {
@@ -43,6 +46,28 @@ const App = {
         this.saveState(); 
         this.updateCode();
         this.renderStructureTree(); // Init Tree
+    },
+
+    initStructureFileSelect: function() {
+        const select = document.getElementById('structure-file-select');
+        if (select) {
+            select.addEventListener('change', (e) => {
+                const path = e.target.value;
+                if (path) {
+                    this.openFile(path);
+                }
+            });
+        }
+    },
+
+    setupGlobalShortcuts: function() {
+        document.addEventListener('keydown', (e) => {
+            // Export Shortcut (Ctrl+E)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+                e.preventDefault();
+                this.exportSelectedElements();
+            }
+        });
     },
 
     // --- Navigation & UI Control ---
@@ -358,56 +383,9 @@ Views:
     },
 
     // --- Project Hub Logic ---
-    startNewProject: function(type) {
-        // If type is not provided, we need to ask for it
-        if (!type) {
-             const container = document.createElement('div');
-             container.style.display = 'flex';
-             container.style.flexDirection = 'column';
-             container.style.gap = '15px';
-             container.style.marginTop = '10px';
-
-             const label = document.createElement('label');
-             label.innerText = 'Select Project Type:';
-             label.style.color = '#ccc';
-             container.appendChild(label);
-
-             const types = [
-                 { id: 'static', name: 'Static Website (HTML/CSS/JS)', icon: 'fas fa-globe' },
-                 { id: 'js', name: 'JavaScript App', icon: 'fab fa-js' },
-                 { id: 'ts', name: 'TypeScript Project', icon: 'fas fa-file-code' }
-             ];
-
-             types.forEach(t => {
-                 const btn = document.createElement('button');
-                 btn.className = 'btn';
-                 btn.style.textAlign = 'left';
-                 btn.style.padding = '10px';
-                 btn.style.display = 'flex';
-                 btn.style.alignItems = 'center';
-                 btn.style.gap = '10px';
-                 btn.innerHTML = `<i class="${t.icon}"></i> ${t.name}`;
-                 btn.onclick = () => {
-                     this.closeModal();
-                     setTimeout(() => this.startNewProject(t.id), 100);
-                 };
-                 container.appendChild(btn);
-             });
-
-             this.showModal({
-                 title: 'Create New Project',
-                 message: '',
-                 onOk: null
-             });
-             
-             const msgEl = document.getElementById('generic-modal-message');
-             if (msgEl) {
-                 msgEl.innerHTML = '';
-                 msgEl.appendChild(container);
-             }
-             return;
-        }
-
+    startNewProject: function(type = 'static') {
+        // Default to static (HTML) as requested
+        
         // Create form content
         const container = document.createElement('div');
         container.style.display = 'flex';
@@ -425,7 +403,7 @@ Views:
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
         nameInput.className = 'prop-input';
-        nameInput.placeholder = 'MyAwesomeProject';
+        nameInput.placeholder = 'MyWebsite';
         nameGroup.appendChild(nameLabel);
         nameGroup.appendChild(nameInput);
         container.appendChild(nameGroup);
@@ -445,42 +423,13 @@ Views:
         pathGroup.appendChild(pathInput);
         container.appendChild(pathGroup);
 
-        // Transpiler Option (for TS)
-        let transpilerSelect;
-        if (type === 'ts') {
-            const tsGroup = document.createElement('div');
-            const tsLabel = document.createElement('label');
-            tsLabel.innerText = 'Transpiler:';
-            tsLabel.style.display = 'block';
-            tsLabel.style.marginBottom = '5px';
-            tsLabel.style.color = '#ccc';
-            
-            transpilerSelect = document.createElement('select');
-            transpilerSelect.className = 'prop-input';
-            
-            const optBun = document.createElement('option');
-            optBun.value = 'bun';
-            optBun.innerText = 'Bun (Fast)';
-            transpilerSelect.appendChild(optBun);
-            
-            const optTsc = document.createElement('option');
-            optTsc.value = 'tsc';
-            optTsc.innerText = 'TypeScript Compiler (tsc)';
-            transpilerSelect.appendChild(optTsc);
-            
-            tsGroup.appendChild(tsLabel);
-            tsGroup.appendChild(transpilerSelect);
-            container.appendChild(tsGroup);
-        }
-
         this.showModal({
-            title: `Create New ${type.toUpperCase()} Project`,
+            title: 'Create New Project',
             message: '', 
             showInput: false,
             onOk: () => {
                 const name = nameInput.value.trim();
                 const path = pathInput.value.trim();
-                const transpiler = transpilerSelect ? transpilerSelect.value : null;
 
                 if (!name) {
                     alert('Project name is required!');
@@ -494,8 +443,8 @@ Views:
                     body: JSON.stringify({
                         name: name,
                         path: path,
-                        type: type,
-                        transpiler: transpiler
+                        type: 'static', // Hardcoded
+                        transpiler: null
                     })
                 })
                 .then(res => res.json())
@@ -513,13 +462,32 @@ Views:
 
                         // Load the new project content
                         Builder.canvas.innerHTML = '';
-                        if (type === 'static') {
-                             Builder.canvas.innerHTML = `<div class="dropped-element" style="padding:40px; text-align:center;"><h1>${name}</h1><p>Start building your static site!</p></div>`;
-                        } else if (type === 'js') {
-                             Builder.canvas.innerHTML = `<div class="dropped-element" style="padding:40px; text-align:center;"><h1>${name}</h1><p>JS App Initialized</p></div>`;
-                        } else {
-                             Builder.canvas.innerHTML = `<div class="dropped-element" style="padding:40px; text-align:center;"><h1>${name}</h1><p>TypeScript Project (${transpiler}) Ready</p></div>`;
-                        }
+                        
+                        // Try to load index.html content immediately
+                        fetch('/api/read_file', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: data.path + '/index.html' })
+                        })
+                        .then(res => res.json())
+                        .then(fileData => {
+                            if (fileData.content) {
+                                Builder.loadHTML(fileData.content);
+                                this.logConsole('Loaded index.html', 'success');
+                            } else {
+                                // Fallback
+                                Builder.canvas.innerHTML = `<div class="dropped-element" style="padding:40px; text-align:center;"><h1>${name}</h1><p>Start building your website!</p></div>`;
+                            }
+                            this.saveState();
+                            this.updateCode();
+                        })
+                        .catch(err => {
+                            console.error('Error loading new project file:', err);
+                            // Fallback
+                            Builder.canvas.innerHTML = `<div class="dropped-element" style="padding:40px; text-align:center;"><h1>${name}</h1><p>Start building your website!</p></div>`;
+                            this.saveState();
+                            this.updateCode();
+                        });
                         
                         // Update Explorer Title
                         const projectName = data.path.split(/[/\\]/).pop();
@@ -1786,7 +1754,7 @@ Views:
         if (!container) return;
         
         container.innerHTML = '';
-        const root = document.getElementById('preview-canvas'); // Or Builder.canvas
+        const root = document.getElementById('preview-canvas'); 
         if (!root) return;
         
         // Ensure collapsed set exists
@@ -1808,14 +1776,16 @@ Views:
             item.style.cursor = 'pointer';
             item.style.display = 'flex';
             item.style.alignItems = 'center';
-            item.style.borderBottom = '1px solid #333';
-            item.style.color = '#ddd';
+            item.style.borderBottom = '1px solid var(--border-color)';
+            item.style.color = 'var(--text-primary)';
             item.draggable = true;
             
-            // Sync Selection
+            // Sync Selection (Green Highlight as requested)
             if (Builder.selectedElements.includes(element)) {
-                item.style.backgroundColor = '#007acc';
-                item.style.color = '#fff';
+                item.style.backgroundColor = 'rgba(0, 255, 0, 0.2)'; // Green tint
+                item.style.borderLeft = '3px solid #00ff00';
+            } else {
+                 item.style.borderLeft = '3px solid transparent';
             }
             
             // Toggle / Icon Container
@@ -1853,22 +1823,24 @@ Views:
             icon.style.marginRight = '8px';
             icon.style.width = '16px';
             icon.style.textAlign = 'center';
+            icon.style.color = '#dcb67a';
             item.appendChild(icon);
             
-            // Label
+            // Label (Full Tag Info)
             const label = document.createElement('span');
-            let labelText = tagName;
-            if (element.id) labelText += '#' + element.id;
+            let labelText = `<span style="color:#569cd6">${tagName}</span>`;
+            if (element.id) labelText += `<span style="color:#9cdcfe">#${element.id}</span>`;
             if (element.className && typeof element.className === 'string') {
                  const classes = element.className.replace('selected', '').replace('dropped-element', '').trim();
-                 if (classes) labelText += '.' + classes.replace(/\s+/g, '.');
+                 if (classes) labelText += `<span style="color:#ce9178">.${classes.replace(/\s+/g, '.')}</span>`;
             }
-            label.innerText = labelText;
+            label.innerHTML = labelText; // Use innerHTML for coloring
             label.style.flex = '1';
             label.style.whiteSpace = 'nowrap';
             label.style.overflow = 'hidden';
             label.style.textOverflow = 'ellipsis';
             label.style.fontSize = '12px';
+            label.style.fontFamily = 'Consolas, monospace';
             item.appendChild(label);
             
             // Events
@@ -1877,7 +1849,7 @@ Views:
                 // Shine on preview
                 Builder.highlightDropTarget(element);
                 if (!Builder.selectedElements.includes(element)) {
-                     item.style.backgroundColor = '#2a2d2e';
+                     item.style.backgroundColor = 'var(--bg-hover)';
                 }
             };
             item.onmouseout = (e) => {
@@ -1885,13 +1857,17 @@ Views:
                 Builder.removeHighlight(element);
                 if (!Builder.selectedElements.includes(element)) {
                      item.style.backgroundColor = 'transparent';
+                } else {
+                     item.style.backgroundColor = 'rgba(0, 255, 0, 0.2)';
                 }
             };
             item.onclick = (e) => {
                 e.stopPropagation();
                 const multi = e.ctrlKey || e.metaKey;
                 Builder.selectElement(element, multi);
-                this.renderStructureTree(); // Re-render to show selection
+                // The selection update triggers updatePropertyInspector which triggers renderStructureTree
+                // But just in case:
+                this.renderStructureTree(); 
             };
             
             // Double Click to Edit
@@ -1900,8 +1876,36 @@ Views:
                 this.editStructureItem(element);
             };
             
-            // Drag & Drop
-            this.setupStructureDnD(item, element);
+            // Drag & Drop (Onto the tree item)
+            // Allow dropping components FROM sidebar ONTO this tree item
+            item.ondragover = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                item.style.border = '1px dashed #007acc';
+            };
+            item.ondragleave = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                item.style.border = 'none';
+                item.style.borderBottom = '1px solid var(--border-color)';
+                if (Builder.selectedElements.includes(element)) item.style.borderLeft = '3px solid #00ff00';
+            };
+            item.ondrop = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                item.style.border = 'none';
+                item.style.borderBottom = '1px solid var(--border-color)';
+                if (Builder.selectedElements.includes(element)) item.style.borderLeft = '3px solid #00ff00';
+
+                const type = e.dataTransfer.getData('text/plain');
+                if (type) {
+                    // Create element inside this target
+                    Builder.createElement(type, element);
+                    this.saveState();
+                    this.updateCode();
+                    this.renderStructureTree();
+                }
+            };
             
             container.appendChild(item);
             
@@ -1912,6 +1916,76 @@ Views:
         };
         
         buildTree(root);
+    },
+
+    loadStructureFromFile: function(path) {
+        if (!path) return;
+        // Just open the file, it will load into builder
+        this.openFile(path);
+    },
+
+    populateStructureFileSelect: function() {
+        const select = document.getElementById('structure-file-select');
+        if (!select || !this.currentProjectPath) return;
+
+        // Fetch all HTML files recursively
+        fetch('/api/list_files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: this.currentProjectPath, recursive: true })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.items) {
+                const htmlFiles = data.items.filter(f => f.name.endsWith('.html'));
+                // Preserve current selection if possible
+                const currentVal = this.currentFilePath || select.value;
+                
+                select.innerHTML = '<option value="">Select File...</option>';
+                htmlFiles.forEach(f => {
+                    const opt = document.createElement('option');
+                    opt.value = f.path;
+                    // Show relative path for clarity if in subfolder
+                    const relPath = f.path.replace(this.currentProjectPath.replace(/\\/g, '/') + '/', '');
+                    opt.innerText = relPath; // Show relative path
+                    if (f.path === currentVal) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
+        });
+    },
+
+    exportSelectedElements: function() {
+        if (Builder.selectedElements.length === 0) {
+            alert('No elements selected to export.');
+            return;
+        }
+
+        let exportHTML = '';
+        Builder.selectedElements.forEach(el => {
+             // Clone to remove internal classes
+             const clone = el.cloneNode(true);
+             const clean = (node) => {
+                 if (node.classList) {
+                     node.classList.remove('dropped-element', 'selected');
+                     if (node.classList.length === 0) node.removeAttribute('class');
+                     node.style.outline = '';
+                 }
+                 Array.from(node.children).forEach(clean);
+             };
+             clean(clone);
+             exportHTML += clone.outerHTML + '\n';
+        });
+
+        // Copy to clipboard
+        navigator.clipboard.writeText(exportHTML).then(() => {
+            this.logConsole('Selected elements copied to clipboard!', 'success');
+            alert('Selected HTML copied to clipboard!');
+        }).catch(err => {
+            console.error('Failed to copy: ', err);
+            // Fallback
+            prompt('Copy your HTML:', exportHTML);
+        });
     },
     
     editStructureItem: function(element) {
@@ -2341,6 +2415,14 @@ Views:
     },
 
     openFile: function(path) {
+        this.currentFilePath = path;
+        
+        // Update Selector if exists
+        const select = document.getElementById('structure-file-select');
+        if (select) {
+            select.value = path;
+        }
+
         fetch('/api/read_file', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3000,6 +3082,8 @@ Views:
         // Actions
         const actionGroup = document.createElement('div');
         actionGroup.className = 'prop-group';
+        /*
+        // Removed "Save as Block" as requested
         actionGroup.innerHTML = `<div class="panel-header" style="padding-left:0; border:none; background:transparent; margin-bottom:5px;">Actions</div>`;
         
         const saveBtn = document.createElement('button');
@@ -3009,6 +3093,7 @@ Views:
         saveBtn.onclick = () => this.saveCurrentBlock();
         
         actionGroup.appendChild(saveBtn);
+        */
         container.appendChild(actionGroup);
         
         // Content

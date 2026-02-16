@@ -165,6 +165,7 @@ h1 { color: #333; }
 def list_files():
     data = request.json
     path = data.get('path')
+    recursive = data.get('recursive', False)
     
     if not path:
         return jsonify({'error': 'Path is required'}), 400
@@ -176,14 +177,29 @@ def list_files():
 
     try:
         items = []
-        for item in os.listdir(full_path):
-            item_path = os.path.join(full_path, item)
-            is_dir = os.path.isdir(item_path)
-            items.append({
-                'name': item,
-                'type': 'dir' if is_dir else 'file',
-                'path': item_path # full path for next request
-            })
+        if recursive:
+            for root, dirs, files in os.walk(full_path):
+                for name in files:
+                    items.append({
+                        'name': name,
+                        'type': 'file',
+                        'path': os.path.join(root, name)
+                    })
+                for name in dirs:
+                    items.append({
+                        'name': name,
+                        'type': 'dir',
+                        'path': os.path.join(root, name)
+                    })
+        else:
+            for item in os.listdir(full_path):
+                item_path = os.path.join(full_path, item)
+                is_dir = os.path.isdir(item_path)
+                items.append({
+                    'name': item,
+                    'type': 'dir' if is_dir else 'file',
+                    'path': item_path # full path for next request
+                })
         
         # Sort: directories first, then files
         items.sort(key=lambda x: (x['type'] != 'dir', x['name'].lower()))
