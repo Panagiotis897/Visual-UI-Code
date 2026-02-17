@@ -1089,7 +1089,85 @@ body, html {
     color: var(--text-accent);
 }
 
-/* Asset Manager */
+/* Tree View Inputs */
+.tree-input {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    padding: 0 2px;
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.tree-input:hover {
+    border-color: #444;
+    background: #2a2d2e;
+}
+
+.tree-input:focus {
+    border-color: #007acc;
+    background: #1e1e1e;
+}
+
+/* Property Accordion */
+.prop-accordion {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.prop-accordion-header {
+    padding: 8px 10px;
+    background: var(--bg-sidebar);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.prop-accordion-header:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.prop-accordion-content {
+    padding: 10px;
+    display: none;
+    background: var(--bg-panel);
+}
+
+.prop-accordion-content.active {
+    display: block;
+}
+
+/* Selector Header */
+.selector-header {
+    padding: 10px;
+    background: var(--bg-root);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.selector-row {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 5px;
+}
+
+.selector-input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-accent);
+    padding: 4px;
+    font-family: monospace;
+    font-size: 11px;
+}
+
+/* --- Asset Browser (Left Panel) --- */
 .asset-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));

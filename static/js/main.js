@@ -6,6 +6,7 @@ const App = {
     isUpdatingCode: false,
     expandedPaths: new Set(), // Track expanded folders
     currentFilePath: null,
+    activeMediaQuery: '', // Current media query context for CSS edits
 
     init: function() {
         // Load expanded paths
@@ -337,6 +338,68 @@ Views:
                 this.switchBottomPanel('timeline');
             }
         }
+    },
+
+    toggleCodeView: function() {
+        const codePanel = document.getElementById('code-editor-panel');
+        const resizerCode = document.getElementById('resizer-code');
+        const previewPanel = document.getElementById('preview-panel');
+        
+        if (!codePanel || !previewPanel) return;
+        
+        if (codePanel.style.display === 'none') {
+            // Show
+            codePanel.style.display = 'flex';
+            if (resizerCode) resizerCode.style.display = 'block';
+            
+            if (codePanel.dataset.prevFlex) {
+                codePanel.style.flex = codePanel.dataset.prevFlex;
+                previewPanel.style.flex = previewPanel.dataset.prevFlex;
+            } else {
+                codePanel.style.flex = '0 0 40%';
+                previewPanel.style.flex = '1';
+            }
+        } else {
+            // Hide
+            codePanel.dataset.prevFlex = codePanel.style.flex;
+            previewPanel.dataset.prevFlex = previewPanel.style.flex;
+            
+            codePanel.style.display = 'none';
+            if (resizerCode) resizerCode.style.display = 'none';
+            previewPanel.style.flex = '1';
+        }
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+    },
+
+    toggleTerminalView: function() {
+        const bottomPanel = document.getElementById('bottom-panel');
+        const resizerTerminal = document.getElementById('resizer-terminal');
+        const editorContent = document.getElementById('editor-content-wrapper');
+        
+        if (!bottomPanel || !editorContent) return;
+        
+        if (bottomPanel.style.display === 'none') {
+            // Show
+            bottomPanel.style.display = 'flex';
+            if (resizerTerminal) resizerTerminal.style.display = 'block';
+            
+            if (editorContent.dataset.prevHeight) {
+                editorContent.style.height = editorContent.dataset.prevHeight;
+                bottomPanel.style.height = bottomPanel.dataset.prevHeight;
+            } else {
+                editorContent.style.height = 'calc(100% - 200px)';
+                bottomPanel.style.height = '200px';
+            }
+        } else {
+            // Hide
+            editorContent.dataset.prevHeight = editorContent.style.height;
+            bottomPanel.dataset.prevHeight = bottomPanel.style.height;
+            
+            bottomPanel.style.display = 'none';
+            if (resizerTerminal) resizerTerminal.style.display = 'none';
+            editorContent.style.height = '100%';
+        }
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
     },
 
     // --- Generic Modal Logic ---
@@ -1516,7 +1579,7 @@ Views:
         
         // Import Area
         const importLabel = document.createElement('label');
-        importLabel.innerText = 'Import Colors (Hex codes separated by space/comma/newline):';
+        importLabel.innerText = 'Import Colors (Hex, RGB, HSL - separated by comma/newline):';
         importLabel.style.display = 'block';
         importLabel.style.marginBottom = '5px';
         container.appendChild(importLabel);
@@ -1525,7 +1588,7 @@ Views:
         textarea.style.width = '100%';
         textarea.style.height = '100px';
         textarea.className = 'prop-input';
-        textarea.placeholder = '#ffffff, #000000, #ff0000';
+        textarea.placeholder = '#ffffff, rgb(0,0,0), hsl(0, 100%, 50%)';
         container.appendChild(textarea);
 
         // Swatch List
@@ -1568,10 +1631,24 @@ Views:
                 // Process Import
                 const text = textarea.value;
                 if (text) {
-                    const matches = text.match(/#[0-9a-fA-F]{3,8}/g);
-                    if (matches) {
-                        matches.forEach(c => {
-                            if (!this.projectColors.includes(c)) this.projectColors.push(c);
+                    // Regex for Hex, RGB, HSL
+                    const hexRegex = /#[0-9a-fA-F]{3,8}/g;
+                    const rgbRegex = /rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)|rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*[\d.]+\s*\)/g;
+                    const hslRegex = /hsl\(\s*\d+\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*\)|hsla\(\s*\d+\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+\s*\)/g;
+
+                    const hexMatches = text.match(hexRegex) || [];
+                    const rgbMatches = text.match(rgbRegex) || [];
+                    const hslMatches = text.match(hslRegex) || [];
+
+                    const allColors = [...hexMatches, ...rgbMatches, ...hslMatches];
+
+                    if (allColors.length > 0) {
+                        allColors.forEach(c => {
+                            // Normalize if needed, but CSS strings are usually fine
+                            const normalized = c.trim();
+                            if (!this.projectColors.includes(normalized)) {
+                                this.projectColors.push(normalized);
+                            }
                         });
                         this.saveProjectColors();
                     }
@@ -1893,17 +1970,56 @@ Views:
             icon.style.color = '#dcb67a';
             item.appendChild(icon);
             
-            // Label (Full Tag Info + Content)
-            const label = document.createElement('span');
-            let labelText = `<span style="color:#569cd6">${tagName}</span>`;
-            if (element.id) labelText += `<span style="color:#9cdcfe">#${element.id}</span>`;
-            if (element.className && typeof element.className === 'string') {
-                 const classes = element.className.replace('selected', '').replace('dropped-element', '').trim();
-                 if (classes) labelText += `<span style="color:#ce9178">.${classes.replace(/\s+/g, '.')}</span>`;
-            }
+            // Label Container (Flex)
+            const labelContainer = document.createElement('div');
+            labelContainer.style.flex = '1';
+            labelContainer.style.display = 'flex';
+            labelContainer.style.alignItems = 'center';
+            labelContainer.style.gap = '5px';
+            labelContainer.style.overflow = 'hidden';
 
-            // Show Text Content (User Request)
-            // Prioritize direct text node content
+            // 1. Tag Name
+            const tagNameSpan = document.createElement('span');
+            tagNameSpan.innerText = tagName;
+            tagNameSpan.style.color = '#569cd6';
+            tagNameSpan.style.fontSize = '12px';
+            tagNameSpan.style.fontFamily = 'Consolas, monospace';
+            tagNameSpan.style.minWidth = '20px';
+            labelContainer.appendChild(tagNameSpan);
+
+            // 2. ID Input
+            const idInput = document.createElement('input');
+            idInput.type = 'text';
+            idInput.placeholder = '#id';
+            idInput.value = element.id ? element.id : '';
+            idInput.className = 'tree-input'; // Will add CSS
+            idInput.style.width = '60px';
+            idInput.style.color = '#9cdcfe';
+            idInput.onclick = (e) => e.stopPropagation();
+            idInput.onchange = (e) => {
+                element.id = e.target.value;
+                this.updateCode();
+                this.saveState();
+            };
+            labelContainer.appendChild(idInput);
+
+            // 3. Class Input
+            const classInput = document.createElement('input');
+            classInput.type = 'text';
+            classInput.placeholder = '.class';
+            classInput.value = element.className ? element.className.replace('selected', '').replace('dropped-element', '').trim() : '';
+            classInput.className = 'tree-input';
+            classInput.style.width = '80px';
+            classInput.style.color = '#ce9178';
+            classInput.onclick = (e) => e.stopPropagation();
+            classInput.onchange = (e) => {
+                element.className = e.target.value + (Builder.selectedElements.includes(element) ? ' selected' : '');
+                this.updateCode();
+                this.saveState();
+            };
+            labelContainer.appendChild(classInput);
+
+            // 4. Content Input (if text node or simple element)
             let textContent = '';
             for (let node of element.childNodes) {
                 if (node.nodeType === 3 && node.nodeValue.trim()) {
@@ -1911,24 +2027,36 @@ Views:
                     break;
                 }
             }
-            // Fallback to innerText if no direct text but short
-            if (!textContent && element.children.length === 0 && element.innerText) {
-                textContent = element.innerText;
+            if (!textContent && element.children.length === 0) textContent = element.innerText;
+
+            if (textContent || element.children.length === 0) {
+                 const contentInput = document.createElement('input');
+                 contentInput.type = 'text';
+                 contentInput.placeholder = 'content';
+                 contentInput.value = textContent;
+                 contentInput.className = 'tree-input';
+                 contentInput.style.flex = '1';
+                 contentInput.style.color = '#d4d4d4';
+                 contentInput.style.minWidth = '50px';
+                 contentInput.onclick = (e) => e.stopPropagation();
+                 contentInput.onchange = (e) => {
+                     // Try to update text node only
+                     let updated = false;
+                     for (let node of element.childNodes) {
+                        if (node.nodeType === 3) {
+                            node.nodeValue = e.target.value;
+                            updated = true;
+                            break;
+                        }
+                     }
+                     if (!updated) element.innerText = e.target.value;
+                     this.updateCode();
+                     this.saveState();
+                 };
+                 labelContainer.appendChild(contentInput);
             }
 
-            if (textContent) {
-                if (textContent.length > 25) textContent = textContent.substring(0, 25) + '...';
-                labelText += ` <span style="color:#888; font-style:italic; margin-left:5px;">"${textContent}"</span>`;
-            }
-
-            label.innerHTML = labelText; // Use innerHTML for coloring
-            label.style.flex = '1';
-            label.style.whiteSpace = 'nowrap';
-            label.style.overflow = 'hidden';
-            label.style.textOverflow = 'ellipsis';
-            label.style.fontSize = '12px';
-            label.style.fontFamily = 'Consolas, monospace';
-            item.appendChild(label);
+            item.appendChild(labelContainer);
             
             // Events
             item.onmouseover = (e) => {
@@ -3113,20 +3241,48 @@ Views:
             
             const sheet = styleEl.sheet;
             let rule = null;
-            
-            // Search existing (backwards for specificity)
-            // Note: selectorText might be normalized by browser, so we need to be careful
-            for (let i = sheet.cssRules.length - 1; i >= 0; i--) {
-                if (sheet.cssRules[i].selectorText === selector) {
-                    rule = sheet.cssRules[i];
+            let rulesList = sheet.cssRules;
+            let insertIndex = sheet.cssRules.length;
+            let parentRule = sheet; // Default to sheet
+
+            // Handle Media Query
+            if (this.activeMediaQuery) {
+                let mediaRule = null;
+                for (let i = 0; i < sheet.cssRules.length; i++) {
+                    if (sheet.cssRules[i].type === CSSRule.MEDIA_RULE && 
+                        sheet.cssRules[i].conditionText === this.activeMediaQuery) {
+                        mediaRule = sheet.cssRules[i];
+                        break;
+                    }
+                }
+
+                if (!mediaRule) {
+                    try {
+                        const idx = sheet.insertRule(`@media ${this.activeMediaQuery} {}`, sheet.cssRules.length);
+                        mediaRule = sheet.cssRules[idx];
+                    } catch (e) {
+                        console.error("Invalid media query:", this.activeMediaQuery);
+                        return;
+                    }
+                }
+                
+                rulesList = mediaRule.cssRules;
+                insertIndex = mediaRule.cssRules.length;
+                parentRule = mediaRule;
+            }
+
+            // Search existing rule in the correct list
+            for (let i = rulesList.length - 1; i >= 0; i--) {
+                if (rulesList[i].selectorText === selector) {
+                    rule = rulesList[i];
                     break;
                 }
             }
             
             if (!rule) {
                 try {
-                    const index = sheet.insertRule(`${selector} {}`, sheet.cssRules.length);
-                    rule = sheet.cssRules[index];
+                    const idx = parentRule.insertRule(`${selector} {}`, insertIndex);
+                    rule = rulesList[idx];
                 } catch(e) {
                     console.error("Invalid selector:", selector);
                     return;
@@ -3162,9 +3318,25 @@ Views:
              else if (target === 'class') selector += '.' + targetName;
              else if (target === 'tag') selector += targetName;
              
-             for (let i = sheet.cssRules.length - 1; i >= 0; i--) {
-                 if (sheet.cssRules[i].selectorText === selector) {
-                     return sheet.cssRules[i].style[prop];
+             let rulesList = sheet.cssRules;
+
+             // Handle Media Query
+             if (this.activeMediaQuery) {
+                let mediaRule = null;
+                for (let i = 0; i < sheet.cssRules.length; i++) {
+                    if (sheet.cssRules[i].type === CSSRule.MEDIA_RULE && 
+                        sheet.cssRules[i].conditionText === this.activeMediaQuery) {
+                        mediaRule = sheet.cssRules[i];
+                        break;
+                    }
+                }
+                if (!mediaRule) return ''; // No media rule, so no style
+                rulesList = mediaRule.cssRules;
+             }
+             
+             for (let i = rulesList.length - 1; i >= 0; i--) {
+                 if (rulesList[i].selectorText === selector) {
+                     return rulesList[i].style[prop];
                  }
              }
              return '';
@@ -3183,25 +3355,27 @@ Views:
 
         this.highlightCodeForElement(el);
         this.renderStructureTree();
+        this.renderBoxModel(el);
         
-        // --- Target Selector ---
-        const targetGroup = document.createElement('div');
-        targetGroup.className = 'prop-group';
-        targetGroup.style.background = '#2a2d2e';
-        targetGroup.style.border = '1px solid #444';
-        targetGroup.style.padding = '8px';
+        // --- Selector & Media Query Header ---
+        const header = document.createElement('div');
+        header.className = 'selector-header';
         
-        const targetLabel = document.createElement('label');
-        targetLabel.innerText = 'Apply Styles To:';
-        targetLabel.style.display = 'block';
-        targetLabel.style.marginBottom = '5px';
-        targetLabel.style.fontSize = '11px';
-        targetLabel.style.color = '#aaa';
+        // Row 1: Selector
+        const row1 = document.createElement('div');
+        row1.className = 'selector-row';
         
-        const targetSelect = document.createElement('select');
-        targetSelect.className = 'prop-input';
+        const selLabel = document.createElement('span');
+        selLabel.innerText = 'Target:';
+        selLabel.style.width = '50px';
+        selLabel.style.color = '#aaa';
+        selLabel.style.fontSize = '11px';
+        selLabel.style.display = 'flex';
+        selLabel.style.alignItems = 'center';
         
-        // Options
+        const selSelect = document.createElement('select');
+        selSelect.className = 'selector-input';
+        
         const addOpt = (val, txt) => {
             const o = document.createElement('option');
             o.value = val;
@@ -3209,36 +3383,100 @@ Views:
             if (this.styleTarget === val.split(':')[0] && this.styleTargetName === val.split(':')[1]) {
                 o.selected = true;
             }
-            targetSelect.appendChild(o);
+            selSelect.appendChild(o);
         };
         
-        addOpt('inline:', 'Inline Style (Element)');
-        if (el.id) addOpt(`id:${el.id}`, `ID: #${el.id}`);
+        addOpt('inline:', 'Inline Style');
+        if (el.id) addOpt(`id:${el.id}`, `#${el.id}`);
         if (el.className) {
             el.className.split(' ').forEach(c => {
                 if(c !== 'dropped-element' && c !== 'selected') {
-                     addOpt(`class:${c}`, `Class: .${c}`);
+                     addOpt(`class:${c}`, `.${c}`);
                 }
             });
         }
-        addOpt(`tag:${el.tagName.toLowerCase()}`, `Tag: <${el.tagName.toLowerCase()}>`);
+        addOpt(`tag:${el.tagName.toLowerCase()}`, `<${el.tagName.toLowerCase()}>`);
         
-        targetSelect.onchange = (e) => {
+        selSelect.onchange = (e) => {
             const parts = e.target.value.split(':');
             this.styleTarget = parts[0];
             this.styleTargetName = parts[1] || '';
-            this.updatePropertyInspector(el); // Re-render to update values
+            this.updatePropertyInspector(el);
         };
         
-        targetGroup.appendChild(targetLabel);
-        targetGroup.appendChild(targetSelect);
-        container.appendChild(targetGroup);
+        row1.appendChild(selLabel);
+        row1.appendChild(selSelect);
+        header.appendChild(row1);
+        
+        // Row 2: Media Query
+        const row2 = document.createElement('div');
+        row2.className = 'selector-row';
+        
+        const mediaLabel = document.createElement('span');
+        mediaLabel.innerText = '@media:';
+        mediaLabel.style.width = '50px';
+        mediaLabel.style.color = '#aaa';
+        mediaLabel.style.fontSize = '11px';
+        mediaLabel.style.display = 'flex';
+        mediaLabel.style.alignItems = 'center';
+        
+        const mediaSelect = document.createElement('select');
+        mediaSelect.className = 'selector-input';
+        
+        const mediaOptions = [
+            { val: '', txt: 'None (Global)' },
+            { val: '(max-width: 1200px)', txt: '< 1200px (Laptop)' },
+            { val: '(max-width: 992px)', txt: '< 992px (Tablet)' },
+            { val: '(max-width: 768px)', txt: '< 768px (Mobile)' },
+            { val: '(min-width: 1200px)', txt: '> 1200px (Desktop)' }
+        ];
+        
+        mediaOptions.forEach(opt => {
+            const o = document.createElement('option');
+            o.value = opt.val;
+            o.innerText = opt.txt;
+            if (this.activeMediaQuery === opt.val) o.selected = true;
+            mediaSelect.appendChild(o);
+        });
+        
+        mediaSelect.onchange = (e) => {
+            this.activeMediaQuery = e.target.value;
+            this.updatePropertyInspector(el);
+        };
+        
+        row2.appendChild(mediaLabel);
+        row2.appendChild(mediaSelect);
+        header.appendChild(row2);
+        
+        container.appendChild(header);
 
-        const createGroup = (title, inputs) => {
+        // --- Helper: Create Accordion Group ---
+        const createGroup = (title, inputs, isOpen = false) => {
             const group = document.createElement('div');
-            group.className = 'prop-group';
-            group.innerHTML = `<div class="panel-header" style="padding-left:0; border:none; background:transparent; margin-bottom:5px;">${title}</div>`;
-            inputs.forEach(input => group.appendChild(input));
+            group.className = 'prop-accordion';
+            
+            const head = document.createElement('div');
+            head.className = 'prop-accordion-header';
+            head.innerHTML = `<span>${title}</span> <i class="fas fa-chevron-${isOpen ? 'down' : 'right'}"></i>`;
+            
+            const content = document.createElement('div');
+            content.className = 'prop-accordion-content' + (isOpen ? ' active' : '');
+            
+            head.onclick = () => {
+                const isActive = content.classList.contains('active');
+                if (isActive) {
+                    content.classList.remove('active');
+                    head.querySelector('i').className = 'fas fa-chevron-right';
+                } else {
+                    content.classList.add('active');
+                    head.querySelector('i').className = 'fas fa-chevron-down';
+                }
+            };
+            
+            inputs.forEach(inp => content.appendChild(inp));
+            
+            group.appendChild(head);
+            group.appendChild(content);
             container.appendChild(group);
         };
 
@@ -3342,84 +3580,76 @@ Views:
             return wrapper;
         };
 
-        // Identity (Always editable regardless of target)
-        createGroup('Identity', [
+        // --- Identity & Attributes ---
+        const identityInputs = [
             createInput('ID', el.id, (v) => { el.id = v; this.updateCode(); }),
             createInput('Classes', el.className.replace('dropped-element', '').replace('selected', '').trim(), (v) => {
                 el.className = 'dropped-element selected ' + v;
                 this.updateCode();
             })
-        ]);
+        ];
         
-        // Content (Always inline/HTML attribute)
-        if (!['input', 'img', 'hr', 'br', 'video', 'audio', 'iframe'].includes(el.tagName.toLowerCase())) {
-             createGroup('Content', [
-                createInput('Text', el.innerText, (v) => { el.innerText = v; this.updateCode(); })
-            ]);
+        if (!['div', 'span', 'p', 'section', 'header', 'footer'].includes(el.tagName.toLowerCase())) {
+             if (el.tagName.toLowerCase() === 'img') {
+                identityInputs.push(createInput('Src', el.getAttribute('src'), (v) => { el.setAttribute('src', v); this.updateCode(); }));
+                identityInputs.push(createInput('Alt', el.getAttribute('alt'), (v) => { el.setAttribute('alt', v); this.updateCode(); }));
+             } else if (el.tagName.toLowerCase() === 'a') {
+                identityInputs.push(createInput('Href', el.getAttribute('href'), (v) => { el.setAttribute('href', v); this.updateCode(); }));
+             } else {
+                identityInputs.push(createInput('Text Content', el.innerText, (v) => { el.innerText = v; this.updateCode(); }));
+             }
         }
+        createGroup('Attributes', identityInputs, true);
         
-        if (el.tagName.toLowerCase() === 'img') {
-            createGroup('Image Source', [
-                createInput('Src', el.getAttribute('src'), (v) => { el.setAttribute('src', v); this.updateCode(); }),
-                createInput('Alt', el.getAttribute('alt'), (v) => { el.setAttribute('alt', v); this.updateCode(); })
-            ]);
-        }
-        
-        // Styles - Use getStyle/applyStyle
-        const s = el.style; // Still needed for some things? No, use helper.
-        
-        createGroup('Layout', [
-            createInput('Width', this.getStyle('width'), (v) => this.applyStyle('width', v)),
-            createInput('Height', this.getStyle('height'), (v) => this.applyStyle('height', v)),
-            createInput('Padding', this.getStyle('padding'), (v) => this.applyStyle('padding', v)),
-            createInput('Margin', this.getStyle('margin'), (v) => this.applyStyle('margin', v)),
+        // --- Layout ---
+        const layoutInputs = [
             createInput('Display', this.getStyle('display'), (v) => {
                 this.applyStyle('display', v);
-                this.updatePropertyInspector(el); // Re-render
+                this.updatePropertyInspector(el); // Re-render for Flex options
             }, 'select', ['block', 'inline-block', 'flex', 'grid', 'none']),
-        ]);
-
-        // Flexbox Visual Builder
+            createInput('Position', this.getStyle('position'), (v) => this.applyStyle('position', v), 'select', ['static', 'relative', 'absolute', 'fixed', 'sticky']),
+            createInput('Width', this.getStyle('width'), (v) => this.applyStyle('width', v)),
+            createInput('Height', this.getStyle('height'), (v) => this.applyStyle('height', v)),
+            createInput('Margin', this.getStyle('margin'), (v) => this.applyStyle('margin', v)),
+            createInput('Padding', this.getStyle('padding'), (v) => this.applyStyle('padding', v)),
+            createInput('Z-Index', this.getStyle('zIndex'), (v) => this.applyStyle('zIndex', v))
+        ];
+        
         if (this.getStyle('display') === 'flex') {
-            const flexGroup = document.createElement('div');
-            flexGroup.className = 'prop-group';
-            flexGroup.innerHTML = `<div class="panel-header" style="padding-left:0; border:none; background:transparent; margin-bottom:5px;">Flexbox</div>`;
-            // Flex builder needs update to support applyStyle
-            // For now, let's just pass a mock object or update createFlexBuilder
-            // Since createFlexBuilder is separate, I should update it too or wrap it.
-            // Let's modify createFlexBuilder to take a callback or use App.applyStyle internally?
-            // createFlexBuilder is likely defined elsewhere in App.
-            // I'll check if I need to update it.
-            // Yes, createFlexBuilder uses s[prop].
-            // I'll skip it for now or implement a simple version here?
-            // Or I can update createFlexBuilder later.
-            // Let's just append it and hope it works on inline styles (which it does).
-            // But if user selected "ID", flex builder will still edit inline styles.
-            // That's acceptable for now as a limitation, or I can fix it later.
-            flexGroup.appendChild(this.createFlexBuilder(el)); 
-            container.appendChild(flexGroup);
+             const flexContainer = document.createElement('div');
+             flexContainer.appendChild(this.createFlexBuilder(el));
+             layoutInputs.push(flexContainer);
         }
-
+        
+        createGroup('Layout', layoutInputs, true);
+        
+        // --- Typography ---
         createGroup('Typography', [
-            createInput('Color', this.getStyle('color'), (v) => this.applyStyle('color', v), 'color'),
-            createInput('Font Family', this.getStyle('fontFamily'), (v) => this.applyStyle('fontFamily', v), 'select', ['Arial, sans-serif', 'Helvetica, sans-serif', 'Times New Roman, serif', 'Courier New, monospace', 'Georgia, serif', 'Verdana, sans-serif', 'system-ui, -apple-system, sans-serif']),
+            createInput('Font Family', this.getStyle('fontFamily'), (v) => this.applyStyle('fontFamily', v)),
             createInput('Font Size', this.getStyle('fontSize'), (v) => this.applyStyle('fontSize', v)),
             createInput('Font Weight', this.getStyle('fontWeight'), (v) => this.applyStyle('fontWeight', v), 'select', ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900']),
-            createInput('Line Height', this.getStyle('lineHeight'), (v) => this.applyStyle('lineHeight', v)),
+            createInput('Color', this.getStyle('color'), (v) => this.applyStyle('color', v), 'color'),
             createInput('Text Align', this.getStyle('textAlign'), (v) => this.applyStyle('textAlign', v), 'select', ['left', 'center', 'right', 'justify']),
-            createInput('Decoration', this.getStyle('textDecoration'), (v) => this.applyStyle('textDecoration', v), 'select', ['none', 'underline', 'overline', 'line-through']),
-        ]);
-
-        createGroup('Appearance', [
-            createInput('Background', this.getStyle('backgroundColor'), (v) => this.applyStyle('backgroundColor', v), 'color'),
-            createInput('Opacity', this.getStyle('opacity'), (v) => this.applyStyle('opacity', v)),
-            createInput('Cursor', this.getStyle('cursor'), (v) => this.applyStyle('cursor', v), 'select', ['default', 'pointer', 'text', 'move', 'not-allowed']),
-            createInput('Box Shadow', this.getStyle('boxShadow'), (v) => this.applyStyle('boxShadow', v)),
-            createInput('Border', this.getStyle('border'), (v) => this.applyStyle('border', v)),
-            createInput('Border Radius', this.getStyle('borderRadius'), (v) => this.applyStyle('borderRadius', v)),
-            createInput('Overflow', this.getStyle('overflow'), (v) => this.applyStyle('overflow', v), 'select', ['visible', 'hidden', 'scroll', 'auto'])
+            createInput('Line Height', this.getStyle('lineHeight'), (v) => this.applyStyle('lineHeight', v)),
+            createInput('Decoration', this.getStyle('textDecoration'), (v) => this.applyStyle('textDecoration', v), 'select', ['none', 'underline', 'overline', 'line-through'])
         ]);
         
+        // --- Appearance ---
+        createGroup('Appearance', [
+            createInput('Background Color', this.getStyle('backgroundColor'), (v) => this.applyStyle('backgroundColor', v), 'color'),
+            createInput('Opacity', this.getStyle('opacity'), (v) => this.applyStyle('opacity', v)),
+            createInput('Border', this.getStyle('border'), (v) => this.applyStyle('border', v)),
+            createInput('Border Radius', this.getStyle('borderRadius'), (v) => this.applyStyle('borderRadius', v)),
+            createInput('Box Shadow', this.getStyle('boxShadow'), (v) => this.applyStyle('boxShadow', v)),
+            createInput('Cursor', this.getStyle('cursor'), (v) => this.applyStyle('cursor', v), 'select', ['default', 'pointer', 'text', 'move', 'not-allowed'])
+        ]);
+        
+        // --- Effects ---
+        createGroup('Effects', [
+            createInput('Transform', this.getStyle('transform'), (v) => this.applyStyle('transform', v)),
+            createInput('Transition', this.getStyle('transition'), (v) => this.applyStyle('transition', v))
+        ]);
+
         this.renderJSPanel();
     },
 
