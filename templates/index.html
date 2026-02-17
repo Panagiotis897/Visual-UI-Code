@@ -306,10 +306,11 @@
                 <div class="terminal-container" id="bottom-panel">
                     <div class="panel-header bottom-panel-header">
                         <div class="panel-tabs">
-                            <button class="active" onclick="App.switchBottomPanel('terminal')">Terminal</button>
-                            <button onclick="App.switchBottomPanel('timeline')">Animation Timeline</button>
-                            <button onclick="App.switchBottomPanel('console')">JS Console</button>
-                            <button onclick="App.switchBottomPanel('script')">Script Editor</button>
+                            <button data-tab="terminal" onclick="App.switchBottomPanel('terminal')">Terminal</button>
+                            <button data-tab="timeline" onclick="App.switchBottomPanel('timeline')">Animation Timeline</button>
+                            <button data-tab="console" onclick="App.switchBottomPanel('console')">JS Console</button>
+                            <button data-tab="script" onclick="App.switchBottomPanel('script')">Script Editor</button>
+                            <button data-tab="boxmodel" onclick="App.switchBottomPanel('boxmodel')">Box Model</button>
                         </div>
                         <div class="panel-actions">
                             <button id="btn-run-cmd" title="Run Command"><i class="fas fa-play"></i></button>
@@ -379,6 +380,13 @@
                         </div>
                         <div id="monaco-script-editor" style="flex:1; width:100%; border:1px solid #333;"></div>
                     </div>
+
+                    <!-- Box Model Content -->
+                    <div id="panel-content-boxmodel" class="panel-content" style="display:none; flex-direction:column; height:calc(100% - 35px); align-items:center; justify-content:center;">
+                        <div id="box-model-container" class="box-model-visualizer">
+                            <div class="no-selection">Select an element to view Box Model</div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -389,7 +397,11 @@
             <section class="preview-panel" id="preview-panel">
                 <div class="panel-header">
                     Live Preview
-                    <span id="preview-size-label">Desktop</span>
+                    <div class="preview-controls">
+                        <button class="icon-btn active" onclick="App.setPreviewSize('desktop')" title="Desktop"><i class="fas fa-desktop"></i></button>
+                        <button class="icon-btn" onclick="App.setPreviewSize('tablet')" title="Tablet"><i class="fas fa-tablet-alt"></i></button>
+                        <button class="icon-btn" onclick="App.setPreviewSize('mobile')" title="Mobile"><i class="fas fa-mobile-alt"></i></button>
+                    </div>
                 </div>
                 <div class="canvas-container">
                     <div id="preview-canvas" class="preview-canvas desktop">

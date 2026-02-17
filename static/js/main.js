@@ -734,13 +734,10 @@ Views:
 
     saveColorFromStudio: function() {
         const color = document.getElementById('cs-hex').value;
-        const grid = document.getElementById('project-colors');
-        const div = document.createElement('div');
-        div.className = 'color-swatch';
-        div.style.setProperty('--bg', color);
-        div.title = color;
-        div.innerHTML = `<div class="color-preview"></div><div class="color-info">${color}</div>`;
-        grid.appendChild(div);
+        if (!this.projectColors.includes(color)) {
+            this.projectColors.push(color);
+            this.saveProjectColors();
+        }
         this.closeColorStudio();
     },
 
@@ -987,7 +984,7 @@ Views:
         // Toggle buttons
         const buttons = document.querySelectorAll('.panel-tabs button');
         buttons.forEach(b => {
-            if (b.innerText.toLowerCase().includes(tabName) || b.getAttribute('onclick').includes(tabName)) {
+            if (b.dataset.tab === tabName) {
                 b.classList.add('active');
             } else {
                 b.classList.remove('active');
@@ -995,7 +992,7 @@ Views:
         });
 
         // Toggle content
-        document.querySelectorAll('.bottom-panel .panel-content').forEach(el => {
+        document.querySelectorAll('#bottom-panel .panel-content').forEach(el => {
             el.style.display = 'none';
             el.classList.remove('active');
         });
@@ -1004,6 +1001,10 @@ Views:
         if (activePanel) {
             activePanel.style.display = 'flex';
             activePanel.classList.add('active');
+        }
+
+        if (tabName === 'boxmodel' && Builder.selectedElement) {
+            this.renderBoxModel(Builder.selectedElement);
         }
     },
 
@@ -1462,11 +1463,51 @@ Views:
         try {
             const colors = JSON.parse(localStorage.getItem('vuc_project_colors') || '[]');
             this.projectColors = colors;
-        } catch(e) { this.projectColors = []; }
+            if (this.projectColors.length === 0) {
+                 this.projectColors = ['#007acc', '#ff5722', '#4caf50', '#ffffff', '#333333'];
+            }
+        } catch(e) { this.projectColors = ['#007acc', '#ff5722', '#4caf50', '#ffffff', '#333333']; }
+        this.renderProjectColors();
     },
 
     saveProjectColors: function() {
         localStorage.setItem('vuc_project_colors', JSON.stringify(this.projectColors));
+        this.renderProjectColors();
+    },
+
+    renderProjectColors: function() {
+        const grid = document.getElementById('project-colors');
+        if (!grid) return;
+        
+        grid.innerHTML = '';
+        
+        this.projectColors.forEach(color => {
+            const div = document.createElement('div');
+            div.className = 'color-swatch';
+            div.style.setProperty('--bg', color);
+            div.title = color;
+            div.innerHTML = `<div class="color-preview"></div><div class="color-info">${color}</div>`;
+            
+            div.onclick = () => {
+                if (Builder.selectedElement) {
+                    App.applyStyle('backgroundColor', color);
+                } else {
+                    navigator.clipboard.writeText(color).then(() => {
+                        App.logConsole(`Copied ${color}`, 'success');
+                    });
+                }
+            };
+            
+            div.oncontextmenu = (e) => {
+                e.preventDefault();
+                if (confirm(`Remove color ${color}?`)) {
+                    this.projectColors = this.projectColors.filter(c => c !== color);
+                    this.saveProjectColors();
+                }
+            };
+            
+            grid.appendChild(div);
+        });
     },
 
     openColorPaletteManager: function() {
@@ -2889,7 +2930,6 @@ Views:
     },
 
     createFlexBuilder: function(el) {
-        const s = el.style;
         const container = document.createElement('div');
         container.className = 'flex-builder';
         
@@ -2905,19 +2945,19 @@ Views:
             const btnGroup = document.createElement('div');
             btnGroup.className = 'flex-options';
             
+            const currentVal = this.getStyle(prop);
+
             options.forEach(opt => {
                 const btn = document.createElement('button');
-                btn.className = 'flex-btn' + (s[prop] === opt.value ? ' active' : '');
+                btn.className = 'flex-btn' + (currentVal === opt.value ? ' active' : '');
                 btn.title = opt.value;
                 btn.innerHTML = opt.icon; // FontAwesome icons
                 
                 btn.onclick = () => {
-                    s[prop] = opt.value;
+                    this.applyStyle(prop, opt.value);
                     // Update UI
                     Array.from(btnGroup.children).forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    App.updateCode();
-                    App.saveState();
                 };
                 btnGroup.appendChild(btn);
             });
@@ -2957,21 +2997,22 @@ Views:
         row.style.gap = '10px';
         row.style.marginBottom = '8px';
         
+        const currentWrap = this.getStyle('flexWrap');
+
         // Wrap Toggle
         const wrapBtn = document.createElement('button');
-        wrapBtn.className = 'flex-btn' + (s.flexWrap === 'wrap' ? ' active' : '');
+        wrapBtn.className = 'flex-btn' + (currentWrap === 'wrap' ? ' active' : '');
         wrapBtn.innerHTML = '<i class="fas fa-level-down-alt"></i> Wrap';
         wrapBtn.style.flex = '1';
         wrapBtn.onclick = () => {
-            if (s.flexWrap === 'wrap') {
-                s.flexWrap = 'nowrap';
+            const current = this.getStyle('flexWrap');
+            if (current === 'wrap') {
+                this.applyStyle('flexWrap', 'nowrap');
                 wrapBtn.classList.remove('active');
             } else {
-                s.flexWrap = 'wrap';
+                this.applyStyle('flexWrap', 'wrap');
                 wrapBtn.classList.add('active');
             }
-            App.updateCode();
-            App.saveState();
         };
         row.appendChild(wrapBtn);
         
@@ -2979,12 +3020,10 @@ Views:
         const gapInput = document.createElement('input');
         gapInput.className = 'prop-input';
         gapInput.placeholder = 'Gap (e.g. 10px)';
-        gapInput.value = s.gap || '';
+        gapInput.value = this.getStyle('gap') || '';
         gapInput.style.flex = '1';
         gapInput.onchange = (e) => {
-            s.gap = e.target.value;
-            App.updateCode();
-            App.saveState();
+            this.applyStyle('gap', e.target.value);
         };
         row.appendChild(gapInput);
         
@@ -2993,19 +3032,207 @@ Views:
         return container;
     },
 
+    setPreviewSize: function(size) {
+        const canvas = document.getElementById('preview-canvas');
+        if (canvas) {
+            canvas.classList.remove('desktop', 'tablet', 'mobile');
+            canvas.classList.add(size);
+        }
+        
+        document.querySelectorAll('.preview-controls button').forEach(b => {
+            if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(size)) {
+                b.classList.add('active');
+            } else {
+                b.classList.remove('active');
+            }
+        });
+    },
+
+    renderBoxModel: function(el) {
+        const container = document.getElementById('box-model-container');
+        if (!container) return;
+        
+        if (!el) {
+             container.innerHTML = '<div class="no-selection">Select an element to view Box Model</div>';
+             return;
+        }
+        
+        const cs = window.getComputedStyle(el);
+        const box = {
+            margin: { t: cs.marginTop, r: cs.marginRight, b: cs.marginBottom, l: cs.marginLeft },
+            border: { t: cs.borderTopWidth, r: cs.borderRightWidth, b: cs.borderBottomWidth, l: cs.borderLeftWidth },
+            padding: { t: cs.paddingTop, r: cs.paddingRight, b: cs.paddingBottom, l: cs.paddingLeft },
+            width: cs.width,
+            height: cs.height
+        };
+        
+        const format = (v) => parseInt(v) || 0;
+        
+        const layer = (name, vals, inner) => `
+            <div class="bm-layer bm-${name}">
+                <div class="bm-label">${name}</div>
+                <div class="bm-val-top">${format(vals.t)}</div>
+                <div class="bm-val-bottom">${format(vals.b)}</div>
+                <div class="bm-val-left">${format(vals.l)}</div>
+                <div class="bm-val-right">${format(vals.r)}</div>
+                ${inner}
+            </div>`;
+            
+        const content = `
+            <div class="bm-content">
+                ${format(box.width)} x ${format(box.height)}
+            </div>`;
+            
+        container.innerHTML = layer('margin', box.margin, layer('border', box.border, layer('padding', box.padding, content)));
+    },
+
+    applyStyle: function(prop, value) {
+        const el = Builder.selectedElement;
+        if (!el) return;
+        
+        const target = this.styleTarget || 'inline';
+        const targetName = this.styleTargetName || '';
+
+        if (target === 'inline') {
+            el.style[prop] = value;
+        } else {
+            // CSS Rule Logic
+            // Prefix with #preview-canvas to scope
+            let selector = '#preview-canvas ';
+            if (target === 'id') selector += '#' + targetName;
+            else if (target === 'class') selector += '.' + targetName;
+            else if (target === 'tag') selector += targetName;
+            
+            // Find or create style sheet
+            let styleEl = document.getElementById('vuc-custom-styles');
+            if (!styleEl) {
+                styleEl = document.createElement('style');
+                styleEl.id = 'vuc-custom-styles';
+                document.head.appendChild(styleEl);
+            }
+            
+            const sheet = styleEl.sheet;
+            let rule = null;
+            
+            // Search existing (backwards for specificity)
+            // Note: selectorText might be normalized by browser, so we need to be careful
+            for (let i = sheet.cssRules.length - 1; i >= 0; i--) {
+                if (sheet.cssRules[i].selectorText === selector) {
+                    rule = sheet.cssRules[i];
+                    break;
+                }
+            }
+            
+            if (!rule) {
+                try {
+                    const index = sheet.insertRule(`${selector} {}`, sheet.cssRules.length);
+                    rule = sheet.cssRules[index];
+                } catch(e) {
+                    console.error("Invalid selector:", selector);
+                    return;
+                }
+            }
+            
+            rule.style[prop] = value;
+        }
+        
+        this.updateCode();
+        this.saveState();
+        
+        if (['margin', 'padding', 'border', 'width', 'height'].some(p => prop.startsWith(p))) {
+             this.renderBoxModel(el);
+        }
+    },
+    
+    getStyle: function(prop) {
+         const el = Builder.selectedElement;
+         if (!el) return '';
+         
+         const target = this.styleTarget || 'inline';
+         const targetName = this.styleTargetName || '';
+
+         if (target === 'inline') {
+             return el.style[prop];
+         } else {
+             let styleEl = document.getElementById('vuc-custom-styles');
+             if (!styleEl) return '';
+             const sheet = styleEl.sheet;
+             let selector = '#preview-canvas ';
+             if (target === 'id') selector += '#' + targetName;
+             else if (target === 'class') selector += '.' + targetName;
+             else if (target === 'tag') selector += targetName;
+             
+             for (let i = sheet.cssRules.length - 1; i >= 0; i--) {
+                 if (sheet.cssRules[i].selectorText === selector) {
+                     return sheet.cssRules[i].style[prop];
+                 }
+             }
+             return '';
+         }
+    },
+
     updatePropertyInspector: function(el) {
         const container = document.getElementById('property-inspector');
         container.innerHTML = '';
 
         if (!el) {
             container.innerHTML = '<div class="no-selection">Select an element to edit properties</div>';
-            this.renderStructureTree(); // Clear selection in tree
+            this.renderStructureTree();
             return;
         }
 
-        // Highlight in Code View
         this.highlightCodeForElement(el);
-        this.renderStructureTree(); // Update selection in tree
+        this.renderStructureTree();
+        
+        // --- Target Selector ---
+        const targetGroup = document.createElement('div');
+        targetGroup.className = 'prop-group';
+        targetGroup.style.background = '#2a2d2e';
+        targetGroup.style.border = '1px solid #444';
+        targetGroup.style.padding = '8px';
+        
+        const targetLabel = document.createElement('label');
+        targetLabel.innerText = 'Apply Styles To:';
+        targetLabel.style.display = 'block';
+        targetLabel.style.marginBottom = '5px';
+        targetLabel.style.fontSize = '11px';
+        targetLabel.style.color = '#aaa';
+        
+        const targetSelect = document.createElement('select');
+        targetSelect.className = 'prop-input';
+        
+        // Options
+        const addOpt = (val, txt) => {
+            const o = document.createElement('option');
+            o.value = val;
+            o.innerText = txt;
+            if (this.styleTarget === val.split(':')[0] && this.styleTargetName === val.split(':')[1]) {
+                o.selected = true;
+            }
+            targetSelect.appendChild(o);
+        };
+        
+        addOpt('inline:', 'Inline Style (Element)');
+        if (el.id) addOpt(`id:${el.id}`, `ID: #${el.id}`);
+        if (el.className) {
+            el.className.split(' ').forEach(c => {
+                if(c !== 'dropped-element' && c !== 'selected') {
+                     addOpt(`class:${c}`, `Class: .${c}`);
+                }
+            });
+        }
+        addOpt(`tag:${el.tagName.toLowerCase()}`, `Tag: <${el.tagName.toLowerCase()}>`);
+        
+        targetSelect.onchange = (e) => {
+            const parts = e.target.value.split(':');
+            this.styleTarget = parts[0];
+            this.styleTargetName = parts[1] || '';
+            this.updatePropertyInspector(el); // Re-render to update values
+        };
+        
+        targetGroup.appendChild(targetLabel);
+        targetGroup.appendChild(targetSelect);
+        container.appendChild(targetGroup);
 
         const createGroup = (title, inputs) => {
             const group = document.createElement('div');
@@ -3074,21 +3301,14 @@ Views:
                 const manageBtn = document.createElement('button');
                 manageBtn.innerHTML = '<i class="fas fa-palette"></i>';
                 manageBtn.title = "Manage Palette";
-                manageBtn.style.border = 'none';
-                manageBtn.style.background = 'transparent';
-                manageBtn.style.color = '#888';
-                manageBtn.style.cursor = 'pointer';
-                manageBtn.style.fontSize = '12px';
+                manageBtn.className = "icon-btn"; 
                 manageBtn.onclick = () => this.openColorPaletteManager();
                 swatchRow.appendChild(manageBtn);
 
                 this.projectColors.forEach(c => {
                     const s = document.createElement('div');
-                    s.style.width = '16px';
-                    s.style.height = '16px';
+                    s.className = 'color-swatch';
                     s.style.backgroundColor = c;
-                    s.style.cursor = 'pointer';
-                    s.style.border = '1px solid #444';
                     s.title = c;
                     s.onclick = () => {
                         inp.value = c;
@@ -3099,8 +3319,8 @@ Views:
                 });
                 wrapper.appendChild(swatchRow);
                 
-                const update = (e) => { onChange(e.target.value); this.updateCode(); };
-                inp.onchange = (e) => { update(e); this.saveState(); };
+                const update = (e) => { onChange(e.target.value); };
+                inp.onchange = (e) => { update(e); };
                 inp.oninput = update;
                 return wrapper;
             } else {
@@ -3112,10 +3332,9 @@ Views:
             
             const update = (e) => {
                 onChange(e.target.value);
-                this.updateCode(); 
             };
             
-            inp.onchange = (e) => { update(e); this.saveState(); };
+            inp.onchange = (e) => { update(e); };
             inp.oninput = update;
 
             wrapper.appendChild(lbl);
@@ -3123,107 +3342,82 @@ Views:
             return wrapper;
         };
 
-        // Identity
+        // Identity (Always editable regardless of target)
         createGroup('Identity', [
-            createInput('ID', el.id, (v) => el.id = v),
+            createInput('ID', el.id, (v) => { el.id = v; this.updateCode(); }),
             createInput('Classes', el.className.replace('dropped-element', '').replace('selected', '').trim(), (v) => {
                 el.className = 'dropped-element selected ' + v;
+                this.updateCode();
             })
         ]);
-
-        // Actions
-        const actionGroup = document.createElement('div');
-        actionGroup.className = 'prop-group';
-        /*
-        // Removed "Save as Block" as requested
-        actionGroup.innerHTML = `<div class="panel-header" style="padding-left:0; border:none; background:transparent; margin-bottom:5px;">Actions</div>`;
         
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'btn primary';
-        saveBtn.style.width = '100%';
-        saveBtn.innerHTML = '<i class="fas fa-cube"></i> Save as Block';
-        saveBtn.onclick = () => this.saveCurrentBlock();
-        
-        actionGroup.appendChild(saveBtn);
-        */
-        container.appendChild(actionGroup);
-        
-        // Content
+        // Content (Always inline/HTML attribute)
         if (!['input', 'img', 'hr', 'br', 'video', 'audio', 'iframe'].includes(el.tagName.toLowerCase())) {
              createGroup('Content', [
-                createInput('Text', el.innerText, (v) => el.innerText = v)
+                createInput('Text', el.innerText, (v) => { el.innerText = v; this.updateCode(); })
             ]);
         }
         
         if (el.tagName.toLowerCase() === 'img') {
             createGroup('Image Source', [
-                createInput('Src', el.getAttribute('src'), (v) => el.setAttribute('src', v)),
-                createInput('Alt', el.getAttribute('alt'), (v) => el.setAttribute('alt', v))
+                createInput('Src', el.getAttribute('src'), (v) => { el.setAttribute('src', v); this.updateCode(); }),
+                createInput('Alt', el.getAttribute('alt'), (v) => { el.setAttribute('alt', v); this.updateCode(); })
             ]);
         }
         
-        if (el.tagName.toLowerCase() === 'a') {
-            createGroup('Link', [
-                createInput('Href', el.getAttribute('href'), (v) => el.setAttribute('href', v)),
-                createInput('Target', el.getAttribute('target'), (v) => el.setAttribute('target', v), 'select', ['_self', '_blank', '_parent', '_top'])
-            ]);
-        }
-
-        // Styles
-        const s = el.style;
+        // Styles - Use getStyle/applyStyle
+        const s = el.style; // Still needed for some things? No, use helper.
+        
         createGroup('Layout', [
-            createInput('Width', s.width, (v) => s.width = v),
-            createInput('Height', s.height, (v) => s.height = v),
-            createInput('Padding', s.padding, (v) => s.padding = v),
-            createInput('Margin', s.margin, (v) => s.margin = v),
-            createInput('Display', s.display, (v) => {
-                s.display = v;
-                // Re-render to show/hide flex controls
-                this.updatePropertyInspector(el);
+            createInput('Width', this.getStyle('width'), (v) => this.applyStyle('width', v)),
+            createInput('Height', this.getStyle('height'), (v) => this.applyStyle('height', v)),
+            createInput('Padding', this.getStyle('padding'), (v) => this.applyStyle('padding', v)),
+            createInput('Margin', this.getStyle('margin'), (v) => this.applyStyle('margin', v)),
+            createInput('Display', this.getStyle('display'), (v) => {
+                this.applyStyle('display', v);
+                this.updatePropertyInspector(el); // Re-render
             }, 'select', ['block', 'inline-block', 'flex', 'grid', 'none']),
         ]);
 
         // Flexbox Visual Builder
-        if (s.display === 'flex') {
+        if (this.getStyle('display') === 'flex') {
             const flexGroup = document.createElement('div');
             flexGroup.className = 'prop-group';
             flexGroup.innerHTML = `<div class="panel-header" style="padding-left:0; border:none; background:transparent; margin-bottom:5px;">Flexbox</div>`;
-            flexGroup.appendChild(this.createFlexBuilder(el));
+            // Flex builder needs update to support applyStyle
+            // For now, let's just pass a mock object or update createFlexBuilder
+            // Since createFlexBuilder is separate, I should update it too or wrap it.
+            // Let's modify createFlexBuilder to take a callback or use App.applyStyle internally?
+            // createFlexBuilder is likely defined elsewhere in App.
+            // I'll check if I need to update it.
+            // Yes, createFlexBuilder uses s[prop].
+            // I'll skip it for now or implement a simple version here?
+            // Or I can update createFlexBuilder later.
+            // Let's just append it and hope it works on inline styles (which it does).
+            // But if user selected "ID", flex builder will still edit inline styles.
+            // That's acceptable for now as a limitation, or I can fix it later.
+            flexGroup.appendChild(this.createFlexBuilder(el)); 
             container.appendChild(flexGroup);
         }
 
         createGroup('Typography', [
-            createInput('Color', s.color, (v) => s.color = v, 'color'),
-            createInput('Font Family', s.fontFamily, (v) => s.fontFamily = v, 'select', ['Arial, sans-serif', 'Helvetica, sans-serif', 'Times New Roman, serif', 'Courier New, monospace', 'Georgia, serif', 'Verdana, sans-serif', 'system-ui, -apple-system, sans-serif']),
-            createInput('Font Size', s.fontSize, (v) => s.fontSize = v),
-            createInput('Font Weight', s.fontWeight, (v) => s.fontWeight = v, 'select', ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900']),
-            createInput('Line Height', s.lineHeight, (v) => s.lineHeight = v),
-            createInput('Letter Spacing', s.letterSpacing, (v) => s.letterSpacing = v),
-            createInput('Text Align', s.textAlign, (v) => s.textAlign = v, 'select', ['left', 'center', 'right', 'justify']),
-            createInput('Decoration', s.textDecoration, (v) => s.textDecoration = v, 'select', ['none', 'underline', 'overline', 'line-through']),
-            createInput('Transform', s.textTransform, (v) => s.textTransform = v, 'select', ['none', 'capitalize', 'uppercase', 'lowercase'])
+            createInput('Color', this.getStyle('color'), (v) => this.applyStyle('color', v), 'color'),
+            createInput('Font Family', this.getStyle('fontFamily'), (v) => this.applyStyle('fontFamily', v), 'select', ['Arial, sans-serif', 'Helvetica, sans-serif', 'Times New Roman, serif', 'Courier New, monospace', 'Georgia, serif', 'Verdana, sans-serif', 'system-ui, -apple-system, sans-serif']),
+            createInput('Font Size', this.getStyle('fontSize'), (v) => this.applyStyle('fontSize', v)),
+            createInput('Font Weight', this.getStyle('fontWeight'), (v) => this.applyStyle('fontWeight', v), 'select', ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900']),
+            createInput('Line Height', this.getStyle('lineHeight'), (v) => this.applyStyle('lineHeight', v)),
+            createInput('Text Align', this.getStyle('textAlign'), (v) => this.applyStyle('textAlign', v), 'select', ['left', 'center', 'right', 'justify']),
+            createInput('Decoration', this.getStyle('textDecoration'), (v) => this.applyStyle('textDecoration', v), 'select', ['none', 'underline', 'overline', 'line-through']),
         ]);
 
         createGroup('Appearance', [
-            createInput('Background', s.backgroundColor, (v) => s.backgroundColor = v, 'color'),
-            createInput('Opacity', s.opacity, (v) => s.opacity = v),
-            createInput('Cursor', s.cursor, (v) => s.cursor = v, 'select', ['default', 'pointer', 'text', 'move', 'not-allowed']),
-            createInput('Box Shadow', s.boxShadow, (v) => s.boxShadow = v),
-            createInput('Border', s.border, (v) => s.border = v),
-            createInput('Border Radius', s.borderRadius, (v) => s.borderRadius = v),
-            createInput('Overflow', s.overflow, (v) => s.overflow = v, 'select', ['visible', 'hidden', 'scroll', 'auto'])
-        ]);
-
-        createGroup('Effects & Transforms', [
-            createInput('Rotate (deg)', '', (v) => {
-                // Parse existing transform or append
-                // This is a simplified approach; a real transform manager would be complex
-                // For now, let's just support simple rotation
-                s.transform = `rotate(${v}deg)`;
-            }),
-            createInput('Scale', '', (v) => s.transform = `scale(${v})`),
-            createInput('Filter', s.filter, (v) => s.filter = v, 'text'), // e.g. blur(5px)
-            createInput('Transition', s.transition, (v) => s.transition = v)
+            createInput('Background', this.getStyle('backgroundColor'), (v) => this.applyStyle('backgroundColor', v), 'color'),
+            createInput('Opacity', this.getStyle('opacity'), (v) => this.applyStyle('opacity', v)),
+            createInput('Cursor', this.getStyle('cursor'), (v) => this.applyStyle('cursor', v), 'select', ['default', 'pointer', 'text', 'move', 'not-allowed']),
+            createInput('Box Shadow', this.getStyle('boxShadow'), (v) => this.applyStyle('boxShadow', v)),
+            createInput('Border', this.getStyle('border'), (v) => this.applyStyle('border', v)),
+            createInput('Border Radius', this.getStyle('borderRadius'), (v) => this.applyStyle('borderRadius', v)),
+            createInput('Overflow', this.getStyle('overflow'), (v) => this.applyStyle('overflow', v), 'select', ['visible', 'hidden', 'scroll', 'auto'])
         ]);
         
         this.renderJSPanel();
