@@ -2671,8 +2671,25 @@ Views:
                 }
                 this.logConsole(`Opened ${path}`, 'success');
             } else if (ext === 'css') {
-                 this.logConsole(`Opened CSS file ${path}. (CSS Editor not fully integrated yet)`, 'info');
-            } else if (ext === 'js' || ext === 'ts') {
+                  this.currentCSSPath = path; // Track active CSS file
+                  this.currentCSSContent = data.content; // Store content
+                  if (window.monacoEditor) {
+                      window.monacoEditor.setValue(data.content);
+                      monaco.editor.setModelLanguage(window.monacoEditor.getModel(), 'css');
+                      
+                      // Inject styles
+                      let styleTag = document.getElementById('custom-css');
+                      if (!styleTag) {
+                          styleTag = document.createElement('style');
+                          styleTag.id = 'custom-css';
+                          document.head.appendChild(styleTag);
+                      }
+                      styleTag.textContent = data.content;
+                      
+                      this.switchSidebar('css');
+                  }
+                  this.logConsole(`Opened CSS file ${path}`, 'success');
+             } else if (ext === 'js' || ext === 'ts') {
                  if (window.scriptEditor) {
                      window.scriptEditor.setValue(data.content);
                      this.switchBottomPanel('script'); // Switch to Script Editor Panel
@@ -3783,7 +3800,17 @@ Views:
             
             // Debounce save
             this.saveStateDebounced();
-        } else if (activeTab === 'js') {
+        } else if (activeTab === 'css') {
+             let styleTag = document.getElementById('custom-css');
+             if (!styleTag) {
+                 styleTag = document.createElement('style');
+                 styleTag.id = 'custom-css';
+                 document.head.appendChild(styleTag);
+             }
+             styleTag.textContent = code;
+             this.currentCSSContent = code; // Update memory
+             // We could debounce save to file here if we wanted auto-save
+          } else if (activeTab === 'js') {
              // Handle Global JS
              let scriptEl = Builder.canvas.querySelector('#custom-global-js');
              if (!scriptEl) {
@@ -3793,6 +3820,44 @@ Views:
              }
              scriptEl.innerText = code;
              this.saveStateDebounced();
+        }
+    },
+
+    generateBoilerplate: function() {
+        const activeBtn = document.querySelector('.code-tabs button.active');
+        const activeTab = activeBtn ? activeBtn.dataset.lang : 'html';
+        
+        if (activeTab !== 'html') {
+            alert('Please switch to the HTML tab to generate boilerplate.');
+            return;
+        }
+        
+        const boilerplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Project</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container" style="padding: 20px; font-family: sans-serif;">
+        <h1>Hello World</h1>
+        <p>Start building your project here.</p>
+        <button class="btn" style="padding: 8px 16px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">Click Me</button>
+    </div>
+</body>
+</html>`;
+
+        if (confirm('This will overwrite the current editor content with a standard HTML5 boilerplate. Continue?')) {
+            if (window.monacoEditor) {
+                window.monacoEditor.setValue(boilerplate);
+            } else {
+                const editor = document.getElementById('code-editor');
+                if (editor) editor.value = boilerplate;
+            }
+            this.syncCodeToCanvas();
+            this.logConsole('Generated HTML boilerplate', 'info');
         }
     },
 
@@ -3832,8 +3897,12 @@ ${html}
             }
 
         } else if (lang === 'css') {
-            window.monacoEditor.setValue("/* Styles are currently inline in HTML. \n   Export to extract to CSS. */");
-        } else if (lang === 'js') {
+             if (this.currentCSSContent) {
+                 window.monacoEditor.setValue(this.currentCSSContent);
+             } else {
+                  window.monacoEditor.setValue("/* Open a CSS file to edit styles. */");
+             }
+         } else if (lang === 'js') {
             const scriptEl = Builder.canvas.querySelector('#custom-global-js');
             const val = scriptEl ? scriptEl.innerText : "// Custom JavaScript\n// Code here will run globally";
             window.monacoEditor.setValue(val);
@@ -3965,10 +4034,49 @@ ${html}
     },
 
     saveProject: async function() {
-        // Save to local storage for now, or backend if needed
-        const html = Builder.getHTML();
-        localStorage.setItem('vuc_project', html);
-        alert('Project saved to local storage!');
+        const activeBtn = document.querySelector('.code-tabs button.active');
+        const activeTab = activeBtn ? activeBtn.dataset.lang : 'html';
+        
+        if (activeTab === 'css' && this.currentCSSPath) {
+             // Save CSS
+             const content = window.monacoEditor ? window.monacoEditor.getValue() : this.currentCSSContent;
+             fetch('/api/save_file', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ filename: this.currentCSSPath, content: content })
+             })
+             .then(res => res.json())
+             .then(data => {
+                 if (data.error) alert(data.error);
+                 else this.logConsole('Saved ' + this.currentCSSPath, 'success');
+             });
+             return;
+        }
+
+        // Save HTML (Project)
+        let path = this.currentFilePath;
+        // If current file is not HTML (e.g. it's CSS), try to find the main HTML file
+        if (!path || !path.toLowerCase().endsWith('.html')) {
+            path = this.currentProjectPath ? (this.currentProjectPath + '/index.html') : null;
+        }
+        
+        if (path) {
+             fetch('/api/save_file', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ filename: path, content: Builder.getHTML() })
+             })
+             .then(res => res.json())
+             .then(data => {
+                 if (data.error) alert(data.error);
+                 else this.logConsole('Saved project to ' + path, 'success');
+             });
+        } else {
+            // Save to local storage for now
+            const html = Builder.getHTML();
+            localStorage.setItem('vuc_project', html);
+            alert('Project saved to local storage (no file path)!');
+        }
     },
 
     exportProject: function() {

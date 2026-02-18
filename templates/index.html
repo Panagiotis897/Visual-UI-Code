@@ -290,10 +290,13 @@
             <section class="code-panel" id="code-editor-panel">
                 <div class="panel-header">
                     <span>Code Editor</span>
-                    <div class="code-tabs">
-                        <button class="active" data-lang="html">HTML</button>
-                        <button data-lang="css">CSS</button>
-                        <button data-lang="js">JS</button>
+                    <div style="display: flex; align-items: center; gap: 10px; height: 100%;">
+                        <button onclick="App.generateBoilerplate()" title="Generate Boilerplate" class="btn" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 6px; background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-primary); cursor: pointer;"><i class="fas fa-magic"></i> Gen Boilerplate</button>
+                        <div class="code-tabs" style="height: 100%;">
+                            <button class="active" data-lang="html">HTML</button>
+                            <button data-lang="css">CSS</button>
+                            <button data-lang="js">JS</button>
+                        </div>
                     </div>
                 </div>
                 <div class="editor-content" id="editor-content-wrapper">
