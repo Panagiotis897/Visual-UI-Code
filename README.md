@@ -15,13 +15,16 @@ A comprehensive, web-based integrated development environment (IDE) for visual U
 - **Real-Time Preview**: Instantly see your changes on a live canvas.
 - **Responsive Design Modes**: Toggle between Desktop, Tablet, and Mobile views to ensure your UI works on all devices.
 - **Design System Panel**: Built-in reference for color palettes, typography scales, and spacing guidelines.
+- **Color Studio**: Advanced color picker and management.
 
 ### **Code & Development**
 - **Monaco Editor Integration**: Professional-grade code editing with syntax highlighting (powered by VS Code's editor engine).
 - **Bi-Directional Sync**: Changes in the visual builder update the code, and edits in the code editor update the visual preview.
 - **Built-in Terminal**: Execute shell commands directly from the browser interface (powered by a Python/Flask backend).
+- **Structure Tree**: Navigate and manipulate the DOM structure of your project.
 
 ### **Productivity Tools**
+- **Project Hub**: Manage multiple projects and easily switch between them.
 - **Property Inspector**: Granular control over element attributes (ID, classes, text content, styles).
 - **Asset Management**: Upload and manage project assets (images, media) directly within the IDE.
 - **Undo/Redo History**: Fearlessly experiment with full state management support.
@@ -30,7 +33,7 @@ A comprehensive, web-based integrated development environment (IDE) for visual U
 
 ---
 
-## 🛠️ Installation
+## 🛠️ Installation & Getting Started
 
 ### Prerequisites
 - **Python 3.7+**
@@ -40,7 +43,7 @@ A comprehensive, web-based integrated development environment (IDE) for visual U
 1.  **Clone the repository** (or download source):
     ```bash
     git clone https://github.com/Panagiotis897/Visual-UI-Code.git
-    cd visual-ui-code
+    cd Visual-UI-Code
     ```
 
 2.  **Install dependencies**:
@@ -58,17 +61,22 @@ A comprehensive, web-based integrated development environment (IDE) for visual U
 
 ---
 
+## ⚠️ Security Note
+This application includes a terminal feature that allows executing shell commands from the browser. **This is intended for local development only.** Do not deploy this application to a public server without implementing proper authentication and security measures, as it could allow remote code execution.
+
+---
+
 ## 📖 User Manual
 
 ### Interface Overview
 | Section | Description |
 | :--- | :--- |
-| **Sidebar (Left)** | Contains three tabs: **HTML** (Components & Assets), **CSS** (Design System), and **JS**. Also houses the **Property Inspector**. |
+| **Sidebar (Left)** | Contains tabs for **HTML** (Components), **CSS** (Design), **JS**, and **Project Files**. Also houses the **Property Inspector**. |
 | **Code Panel (Center)** | The Monaco Editor for direct code manipulation and the integrated **Terminal**. |
 | **Preview Panel (Right)** | The live canvas where you drop elements. Includes a toolbar for responsive testing. |
 
 ### Workflow
-1.  **Select a Component**: Click the **HTML** tab in the sidebar.
+1.  **Create/Open Project**: Use the Project Hub to start a new project or open an existing one.
 2.  **Drag & Drop**: Drag a component (e.g., `Button`, `Div`, `Image`) onto the preview canvas.
 3.  **Customize**: Click the element on the canvas to select it. Use the **Property Inspector** at the bottom left to change its text, color, or classes.
 4.  **Refine Code**: Switch to the center panel to fine-tune the generated HTML/CSS.
