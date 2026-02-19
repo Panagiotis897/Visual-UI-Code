@@ -1,3 +1,118 @@
+class BezierEditor {
+    constructor(canvasId, onChange) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.onChange = onChange;
+        
+        this.width = this.canvas.width;
+        this.height = this.canvas.height;
+        this.padding = 20;
+        
+        // P1 and P2 coordinates (normalized 0-1)
+        this.p1 = { x: 0.25, y: 0.1 };
+        this.p2 = { x: 0.25, y: 1.0 };
+        
+        this.draggedPoint = null;
+        
+        this.setupEvents();
+        this.draw();
+    }
+    
+    setupEvents() {
+        this.canvas.addEventListener('mousedown', (e) => {
+            const pos = this.getMousePos(e);
+            if (this.hitTest(pos, this.p1)) this.draggedPoint = this.p1;
+            else if (this.hitTest(pos, this.p2)) this.draggedPoint = this.p2;
+        });
+        
+        window.addEventListener('mousemove', (e) => {
+            if (!this.draggedPoint) return;
+            const rect = this.canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left - this.padding) / (this.width - 2 * this.padding);
+            const y = 1 - (e.clientY - rect.top - this.padding) / (this.height - 2 * this.padding);
+            
+            this.draggedPoint.x = Math.max(0, Math.min(1, x));
+            this.draggedPoint.y = y; // y can be outside 0-1 for bouncy effects
+            
+            this.draw();
+            if (this.onChange) this.onChange(this.p1.x, this.p1.y, this.p2.x, this.p2.y);
+        });
+        
+        window.addEventListener('mouseup', () => {
+            this.draggedPoint = null;
+        });
+    }
+    
+    getMousePos(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left - this.padding) / (this.width - 2 * this.padding),
+            y: 1 - (e.clientY - rect.top - this.padding) / (this.height - 2 * this.padding)
+        };
+    }
+    
+    hitTest(pos, point) {
+        const dx = pos.x - point.x;
+        const dy = pos.y - point.y;
+        return (dx*dx + dy*dy) < 0.01; // tolerance
+    }
+    
+    setPoints(x1, y1, x2, y2) {
+        this.p1 = { x: x1, y: y1 };
+        this.p2 = { x: x2, y: y2 };
+        this.draw();
+    }
+    
+    draw() {
+        const w = this.width - 2 * this.padding;
+        const h = this.height - 2 * this.padding;
+        const ctx = this.ctx;
+        
+        ctx.clearRect(0, 0, this.width, this.height);
+        
+        // Transform to convenient coords
+        ctx.save();
+        ctx.translate(this.padding, this.height - this.padding);
+        ctx.scale(w, -h);
+        
+        // Grid
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1/w;
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(1, 1);
+        ctx.stroke();
+        
+        // Curve
+        ctx.strokeStyle = '#007acc';
+        ctx.lineWidth = 3/w;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(this.p1.x, this.p1.y, this.p2.x, this.p2.y, 1, 1);
+        ctx.stroke();
+        
+        // Handles
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 1/w;
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(this.p1.x, this.p1.y);
+        ctx.moveTo(1, 1); ctx.lineTo(this.p2.x, this.p2.y);
+        ctx.stroke();
+        
+        // Points
+        this.drawPoint(this.p1, '#ff00ff');
+        this.drawPoint(this.p2, '#00ffff');
+        
+        ctx.restore();
+    }
+    
+    drawPoint(p, color) {
+        this.ctx.fillStyle = color;
+        this.ctx.beginPath();
+        this.ctx.arc(p.x, p.y, 0.04, 0, Math.PI * 2); // logical radius
+        this.ctx.fill();
+    }
+}
+
 const App = {
     history: [],
     historyIndex: -1,
@@ -34,6 +149,7 @@ const App = {
         this.initColorStudio();
         this.initStructureFileSelect();
         this.setupGlobalShortcuts();
+        this.initAnimationStudio();
         
         // Load File Tree if project path exists
         if (this.currentProjectPath) {
@@ -1090,6 +1206,82 @@ Views:
     // --- Animation Studio Logic ---
     animations: {}, 
     currentAnim: null,
+    bezierEditor: null,
+
+    initAnimationStudio: function() {
+        // Initialize Bezier Editor
+        if (document.getElementById('bezier-canvas')) {
+            this.bezierEditor = new BezierEditor('bezier-canvas', (x1, y1, x2, y2) => {
+                this.updateEasingFromEditor(x1, y1, x2, y2);
+            });
+        }
+        
+        // Bind inputs
+        const durationInput = document.getElementById('anim-duration');
+        if (durationInput) {
+            durationInput.addEventListener('input', (e) => {
+                if (this.currentAnim) {
+                    this.animations[this.currentAnim].duration = e.target.value;
+                    this.generateAnimationCSS();
+                }
+            });
+        }
+        
+        const iterInput = document.getElementById('anim-iter');
+        if (iterInput) {
+            iterInput.addEventListener('input', (e) => {
+                if (this.currentAnim) {
+                    this.animations[this.currentAnim].iter = e.target.value;
+                    this.generateAnimationCSS();
+                }
+            });
+        }
+        
+        const infiniteInput = document.getElementById('anim-infinite');
+        if (infiniteInput) {
+            infiniteInput.addEventListener('change', (e) => {
+                if (this.currentAnim) {
+                    const iterVal = document.getElementById('anim-iter').value;
+                    this.animations[this.currentAnim].iter = e.target.checked ? 'inf' : iterVal;
+                    document.getElementById('anim-iter').disabled = e.target.checked;
+                    this.generateAnimationCSS();
+                }
+            });
+        }
+    },
+
+    updateEasingFromEditor: function(x1, y1, x2, y2) {
+        if (!this.currentAnim) return;
+        const val = `cubic-bezier(${x1.toFixed(2)}, ${y1.toFixed(2)}, ${x2.toFixed(2)}, ${y2.toFixed(2)})`;
+        this.animations[this.currentAnim].easing = val;
+        
+        document.getElementById('bezier-val-p1').innerText = `${x1.toFixed(2)}, ${y1.toFixed(2)}`;
+        document.getElementById('bezier-val-p2').innerText = `${x2.toFixed(2)}, ${y2.toFixed(2)}`;
+        
+        document.getElementById('anim-easing-preset').value = 'custom';
+        this.generateAnimationCSS();
+    },
+
+    setEasingPreset: function(preset) {
+        if (!this.currentAnim) return;
+        
+        let x1=0.25, y1=0.1, x2=0.25, y2=1.0; // default ease
+        
+        switch(preset) {
+            case 'linear': x1=0.0, y1=0.0, x2=1.0, y2=1.0; break;
+            case 'ease': x1=0.25, y1=0.1, x2=0.25, y2=1.0; break;
+            case 'ease-in': x1=0.42, y1=0.0, x2=1.0, y2=1.0; break;
+            case 'ease-out': x1=0.0, y1=0.0, x2=0.58, y2=1.0; break;
+            case 'ease-in-out': x1=0.42, y1=0.0, x2=0.58, y2=1.0; break;
+        }
+        
+        if (preset !== 'custom' && this.bezierEditor) {
+            this.bezierEditor.setPoints(x1, y1, x2, y2);
+            // Manually update text without recursive loop if needed, but updateEasingFromEditor handles UI update
+            this.updateEasingFromEditor(x1, y1, x2, y2);
+            document.getElementById('anim-easing-preset').value = preset; // set it back as updateEasing sets to custom
+        }
+    },
 
     createAnimation: function() {
         this.showModal({
@@ -1103,7 +1295,13 @@ Views:
                     return; 
                 }
                 
-                this.animations[name] = { duration: 1, iter: 1, keyframes: [] };
+                this.animations[name] = { 
+                    duration: 1, 
+                    iter: 1, 
+                    easing: 'cubic-bezier(0.25, 0.10, 0.25, 1.00)',
+                    keyframes: [],
+                    targetId: null
+                };
                 
                 const select = document.getElementById('anim-select');
                 const opt = document.createElement('option');
@@ -1117,14 +1315,73 @@ Views:
     },
 
     selectAnimation: function(name) {
-        if (!name) return;
+        if (!name) {
+            this.currentAnim = null;
+            this.renderTimeline();
+            return;
+        }
         this.currentAnim = name;
         const anim = this.animations[name];
         
         document.getElementById('anim-duration').value = anim.duration;
-        document.getElementById('anim-iter').value = anim.iter;
+        
+        const iterInput = document.getElementById('anim-iter');
+        const infInput = document.getElementById('anim-infinite');
+        
+        if (anim.iter === 'inf') {
+            iterInput.disabled = true;
+            infInput.checked = true;
+        } else {
+            iterInput.value = anim.iter;
+            iterInput.disabled = false;
+            infInput.checked = false;
+        }
+        
+        document.getElementById('anim-target-display').innerText = anim.targetId ? '#' + anim.targetId : 'None selected';
+        
+        // Update Graph
+        if (this.bezierEditor) {
+            if (anim.easing && anim.easing.startsWith('cubic-bezier')) {
+                const matches = anim.easing.match(/cubic-bezier\(([\d\.]+), ([\d\.]+), ([\d\.]+), ([\d\.]+)\)/);
+                if (matches) {
+                    this.bezierEditor.setPoints(parseFloat(matches[1]), parseFloat(matches[2]), parseFloat(matches[3]), parseFloat(matches[4]));
+                    
+                    document.getElementById('bezier-val-p1').innerText = `${matches[1]}, ${matches[2]}`;
+                    document.getElementById('bezier-val-p2').innerText = `${matches[3]}, ${matches[4]}`;
+                }
+            } else {
+                this.setEasingPreset('ease');
+            }
+        }
         
         this.renderTimeline();
+    },
+
+    assignAnimationToSelected: function() {
+        if (!this.currentAnim) {
+             this.showModal({ title: 'Error', message: 'Select an animation first.' });
+             return;
+        }
+        if (!Builder.selectedElement) {
+             this.showModal({ title: 'Error', message: 'Select an element in the builder first.' });
+             return;
+        }
+        
+        // Ensure element has ID
+        if (!Builder.selectedElement.id) {
+            Builder.selectedElement.id = 'el-' + Date.now();
+        }
+        
+        this.animations[this.currentAnim].targetId = Builder.selectedElement.id;
+        document.getElementById('anim-target-display').innerText = '#' + Builder.selectedElement.id;
+        
+        // Show feedback
+        const btn = document.querySelector('#anim-target-display + button');
+        const originalText = btn.innerText;
+        btn.innerText = 'Assigned!';
+        setTimeout(() => btn.innerText = originalText, 1000);
+        
+        this.generateAnimationCSS();
     },
 
     renderTimeline: function() {
@@ -1169,9 +1426,15 @@ Views:
                 
                 const props = {};
                 if (Builder.selectedElement) {
-                    if (Builder.selectedElement.style.transform) props['transform'] = Builder.selectedElement.style.transform;
-                    if (Builder.selectedElement.style.opacity) props['opacity'] = Builder.selectedElement.style.opacity;
-                    if (Builder.selectedElement.style.backgroundColor) props['background-color'] = Builder.selectedElement.style.backgroundColor;
+                    // Capture common animatable properties
+                    const s = Builder.selectedElement.style;
+                    if (s.transform) props['transform'] = s.transform;
+                    if (s.opacity) props['opacity'] = s.opacity;
+                    if (s.backgroundColor) props['background-color'] = s.backgroundColor;
+                    if (s.width) props['width'] = s.width;
+                    if (s.height) props['height'] = s.height;
+                    if (s.left) props['left'] = s.left;
+                    if (s.top) props['top'] = s.top;
                 }
                 
                 this.animations[this.currentAnim].keyframes.push({
@@ -1204,7 +1467,16 @@ Views:
             });
             css += `}\n`;
             
-            css += `.anim-${name} { animation: ${name} ${anim.duration}s ${anim.iter === 'inf' ? 'infinite' : anim.iter} ease-in-out forwards; }\n`;
+            // If targetId is set, use ID selector, otherwise use class
+            const selector = anim.targetId ? `#${anim.targetId}` : `.anim-${name}`;
+            
+            css += `${selector}.anim-active {\n`;
+            css += `  animation-name: ${name};\n`;
+            css += `  animation-duration: ${anim.duration}s;\n`;
+            css += `  animation-iteration-count: ${anim.iter === 'inf' ? 'infinite' : anim.iter};\n`;
+            css += `  animation-timing-function: ${anim.easing || 'ease'};\n`;
+            css += `  animation-fill-mode: forwards;\n`;
+            css += `}\n`;
         }
         
         const frame = document.getElementById('preview-frame');
@@ -1230,27 +1502,92 @@ Views:
     },
 
     playAnimation: function() {
-        if (!this.currentAnim || !Builder.selectedElement) {
-            this.showModal({ title: 'Info', message: 'Select an animation and an element to play.' });
+        if (!this.currentAnim) return;
+        
+        const anim = this.animations[this.currentAnim];
+        let el;
+        
+        if (anim.targetId) {
+            el = document.getElementById(anim.targetId); // Look in main doc
+            // Also look in iframe
+            const frame = document.getElementById('preview-frame');
+            if (frame) {
+                const doc = frame.contentDocument || frame.contentWindow.document;
+                const frameEl = doc.getElementById(anim.targetId);
+                if (frameEl) el = frameEl;
+            }
+        } else {
+            el = Builder.selectedElement;
+        }
+
+        if (!el) {
+            this.showModal({ title: 'Info', message: 'No target element found for this animation.' });
             return;
         }
         
-        const el = Builder.selectedElement;
-        const cls = `anim-${this.currentAnim}`;
-        
-        el.classList.remove(cls);
-        void el.offsetWidth; 
-        el.classList.add(cls);
+        el.classList.remove('anim-active');
+        void el.offsetWidth; // Trigger reflow
+        el.classList.add('anim-active');
     },
     
     pauseAnimation: function() {
-        if (Builder.selectedElement) Builder.selectedElement.style.animationPlayState = 'paused';
+        // Find all active animations
+        const active = document.querySelectorAll('.anim-active');
+        active.forEach(el => el.style.animationPlayState = 'paused');
+        
+        // Iframe
+        const frame = document.getElementById('preview-frame');
+        if (frame) {
+            const doc = frame.contentDocument || frame.contentWindow.document;
+            doc.querySelectorAll('.anim-active').forEach(el => el.style.animationPlayState = 'paused');
+        }
     },
 
     stopAnimation: function() {
-        if (Builder.selectedElement && this.currentAnim) {
-             Builder.selectedElement.classList.remove(`anim-${this.currentAnim}`);
+        const active = document.querySelectorAll('.anim-active');
+        active.forEach(el => {
+            el.classList.remove('anim-active');
+            el.style.animationPlayState = '';
+        });
+        
+        // Iframe
+        const frame = document.getElementById('preview-frame');
+        if (frame) {
+            const doc = frame.contentDocument || frame.contentWindow.document;
+            doc.querySelectorAll('.anim-active').forEach(el => {
+                el.classList.remove('anim-active');
+                el.style.animationPlayState = '';
+            });
         }
+    },
+
+    exportAnimation: function() {
+        if (!this.currentAnim) return;
+        const anim = this.animations[this.currentAnim];
+        
+        let css = `@keyframes ${this.currentAnim} {\n`;
+        anim.keyframes.sort((a,b) => a.time - b.time).forEach(kf => {
+            css += `  ${kf.time}% { `;
+            for (let p in kf.props) css += `${p}: ${kf.props[p]}; `;
+            css += `}\n`;
+        });
+        css += `}\n\n`;
+        
+        const selector = anim.targetId ? `#${anim.targetId}` : `.anim-${this.currentAnim}`;
+        css += `${selector} {\n`;
+        css += `  animation-name: ${this.currentAnim};\n`;
+        css += `  animation-duration: ${anim.duration}s;\n`;
+        css += `  animation-iteration-count: ${anim.iter === 'inf' ? 'infinite' : anim.iter};\n`;
+        css += `  animation-timing-function: ${anim.easing || 'ease'};\n`;
+        css += `  animation-fill-mode: forwards;\n`;
+        css += `}`;
+        
+        this.showModal({
+            title: 'Export CSS',
+            message: 'Copy the CSS below:',
+            showInput: true,
+            defaultValue: css
+        });
     },
 
     // --- Saved Blocks Logic ---
@@ -1524,18 +1861,66 @@ Views:
 
     loadProjectColors: function() {
         try {
-            const colors = JSON.parse(localStorage.getItem('vuc_project_colors') || '[]');
-            this.projectColors = colors;
+            const raw = JSON.parse(localStorage.getItem('vuc_project_colors') || '[]');
+            // Migration: Convert strings to objects
+            this.projectColors = raw.map(c => {
+                if (typeof c === 'string') {
+                    return { value: c, name: c, variable: null };
+                }
+                return c;
+            });
+
             if (this.projectColors.length === 0) {
-                 this.projectColors = ['#007acc', '#ff5722', '#4caf50', '#ffffff', '#333333'];
+                 this.projectColors = [
+                     { value: '#007acc', name: 'Blue', variable: '--primary-color' },
+                     { value: '#ff5722', name: 'Orange', variable: '--accent-color' },
+                     { value: '#333333', name: 'Dark', variable: null },
+                     { value: '#ffffff', name: 'White', variable: null }
+                 ];
             }
-        } catch(e) { this.projectColors = ['#007acc', '#ff5722', '#4caf50', '#ffffff', '#333333']; }
+        } catch(e) { 
+            this.projectColors = []; 
+        }
         this.renderProjectColors();
+        this.updateRootVariables();
     },
 
     saveProjectColors: function() {
         localStorage.setItem('vuc_project_colors', JSON.stringify(this.projectColors));
         this.renderProjectColors();
+        this.updateRootVariables();
+    },
+
+    updateRootVariables: function() {
+        let css = ':root {\n';
+        this.projectColors.forEach(c => {
+            if (c.variable) {
+                css += `  ${c.variable}: ${c.value};\n`;
+            }
+        });
+        css += '}\n';
+
+        // Update main document
+        let style = document.getElementById('vuc-root-vars');
+        if (!style) {
+            style = document.createElement('style');
+            style.id = 'vuc-root-vars';
+            document.head.appendChild(style);
+        }
+        style.innerHTML = css;
+
+        // Update Preview Frame
+        const frame = document.getElementById('preview-frame');
+        if (frame) {
+            const doc = frame.contentDocument || frame.contentWindow.document;
+            let fStyle = doc.getElementById('vuc-root-vars');
+            if (!fStyle) {
+                fStyle = doc.createElement('style');
+                fStyle.id = 'vuc-root-vars';
+                doc.head.appendChild(fStyle);
+            }
+            fStyle.innerHTML = css;
+        }
     },
 
     renderProjectColors: function() {
@@ -1544,27 +1929,45 @@ Views:
         
         grid.innerHTML = '';
         
-        this.projectColors.forEach(color => {
+        this.projectColors.forEach(colorObj => {
+            const color = colorObj.value;
             const div = document.createElement('div');
             div.className = 'color-swatch';
             div.style.setProperty('--bg', color);
-            div.title = color;
-            div.innerHTML = `<div class="color-preview"></div><div class="color-info">${color}</div>`;
+            div.title = `${colorObj.name}\n${color}${colorObj.variable ? '\n' + colorObj.variable : ''}`;
+            
+            let label = colorObj.name;
+            if (colorObj.variable) label += `<br><span style="opacity:0.7; font-size:10px">${colorObj.variable}</span>`;
+            
+            div.innerHTML = `<div class="color-preview" style="background:${color}"></div>
+                             <div class="color-info" style="font-size:11px; padding:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${colorObj.name}</div>`;
             
             div.onclick = () => {
+                const valToApply = colorObj.variable ? `var(${colorObj.variable})` : color;
+                
                 if (Builder.selectedElement) {
-                    App.applyStyle('backgroundColor', color);
+                    // Check if we are in a specific input context? 
+                    // For now just apply to background as default or try to be smart?
+                    // The old behavior was background.
+                    // But if the user is editing text color, they might want to apply it there.
+                    // Ideally we should drag and drop, but click is faster.
+                    
+                    // Let's ask or just apply to background for now as it's the most common.
+                    // Better: Copy to clipboard if not selected, apply if selected.
+                    
+                    App.applyStyle('backgroundColor', valToApply);
+                    App.logConsole(`Applied ${colorObj.name}`, 'success');
                 } else {
-                    navigator.clipboard.writeText(color).then(() => {
-                        App.logConsole(`Copied ${color}`, 'success');
+                    navigator.clipboard.writeText(valToApply).then(() => {
+                        App.logConsole(`Copied ${valToApply}`, 'success');
                     });
                 }
             };
             
             div.oncontextmenu = (e) => {
                 e.preventDefault();
-                if (confirm(`Remove color ${color}?`)) {
-                    this.projectColors = this.projectColors.filter(c => c !== color);
+                if (confirm(`Remove color ${colorObj.name}?`)) {
+                    this.projectColors = this.projectColors.filter(c => c !== colorObj);
                     this.saveProjectColors();
                 }
             };
@@ -1573,13 +1976,42 @@ Views:
         });
     },
 
+    saveColorFromStudio: function() {
+        const hex = document.getElementById('cs-hex').value;
+        const name = document.getElementById('cs-name').value || hex;
+        const isVar = document.getElementById('cs-is-var').checked;
+        let varName = document.getElementById('cs-var-name').value;
+        
+        if (isVar && !varName) {
+            // Auto-generate variable name
+            varName = '--' + name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        }
+
+        const newColor = {
+            value: hex,
+            name: name,
+            variable: isVar ? varName : null
+        };
+
+        // Check duplicates
+        const exists = this.projectColors.find(c => c.value === hex || (c.variable && c.variable === varName));
+        if (exists) {
+            if (!confirm('Color or variable already exists. Add anyway?')) return;
+        }
+
+        this.projectColors.push(newColor);
+        this.saveProjectColors();
+        this.closeColorStudio();
+        this.logConsole(`Added color ${name}`, 'success');
+    },
+
     openColorPaletteManager: function() {
         // Modal for managing colors
         const container = document.createElement('div');
         
         // Import Area
         const importLabel = document.createElement('label');
-        importLabel.innerText = 'Import Colors (Hex, RGB, HSL - separated by comma/newline):';
+        importLabel.innerText = 'Import Colors (Hex, RGB, HSL or JSON):';
         importLabel.style.display = 'block';
         importLabel.style.marginBottom = '5px';
         container.appendChild(importLabel);
@@ -1588,8 +2020,25 @@ Views:
         textarea.style.width = '100%';
         textarea.style.height = '100px';
         textarea.className = 'prop-input';
-        textarea.placeholder = '#ffffff, rgb(0,0,0), hsl(0, 100%, 50%)';
+        textarea.placeholder = '#ffffff, rgb(0,0,0)\nOR JSON: [{"value":"#ff0000", "name":"Red", "variable":"--red"}]';
         container.appendChild(textarea);
+        
+        // Options
+        const optionsDiv = document.createElement('div');
+        optionsDiv.style.marginBottom = '10px';
+        
+        const replaceCheck = document.createElement('input');
+        replaceCheck.type = 'checkbox';
+        replaceCheck.id = 'import-replace';
+        
+        const replaceLabel = document.createElement('label');
+        replaceLabel.htmlFor = 'import-replace';
+        replaceLabel.innerText = ' Replace existing palette';
+        replaceLabel.style.marginLeft = '5px';
+        
+        optionsDiv.appendChild(replaceCheck);
+        optionsDiv.appendChild(replaceLabel);
+        container.appendChild(optionsDiv);
 
         // Swatch List
         const listLabel = document.createElement('div');
@@ -1608,10 +2057,10 @@ Views:
                 const swatch = document.createElement('div');
                 swatch.style.width = '24px';
                 swatch.style.height = '24px';
-                swatch.style.backgroundColor = c;
+                swatch.style.backgroundColor = c.value;
                 swatch.style.border = '1px solid #555';
                 swatch.style.cursor = 'pointer';
-                swatch.title = 'Remove ' + c;
+                swatch.title = `Remove ${c.name} (${c.value})`;
                 swatch.onclick = () => {
                     this.projectColors.splice(idx, 1);
                     this.saveProjectColors();
@@ -1629,30 +2078,90 @@ Views:
             showInput: false,
             onOk: () => {
                 // Process Import
-                const text = textarea.value;
-                if (text) {
-                    // Regex for Hex, RGB, HSL
-                    const hexRegex = /#[0-9a-fA-F]{3,8}/g;
-                    const rgbRegex = /rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)|rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*[\d.]+\s*\)/g;
-                    const hslRegex = /hsl\(\s*\d+\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*\)|hsla\(\s*\d+\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+\s*\)/g;
+                const text = textarea.value.trim();
+                if (!text) return;
+                
+                let newColors = [];
+                let isJson = false;
 
-                    const hexMatches = text.match(hexRegex) || [];
-                    const rgbMatches = text.match(rgbRegex) || [];
-                    const hslMatches = text.match(hslRegex) || [];
-
-                    const allColors = [...hexMatches, ...rgbMatches, ...hslMatches];
-
-                    if (allColors.length > 0) {
-                        allColors.forEach(c => {
-                            // Normalize if needed, but CSS strings are usually fine
-                            const normalized = c.trim();
-                            if (!this.projectColors.includes(normalized)) {
-                                this.projectColors.push(normalized);
+                // Try JSON first
+                if (text.startsWith('[') || text.startsWith('{')) {
+                    try {
+                        const data = JSON.parse(text);
+                        isJson = true;
+                        
+                        const extract = (item) => {
+                            if (typeof item === 'string') {
+                                return { value: item, name: item, variable: null };
                             }
+                            if (typeof item === 'object' && item) {
+                                const val = item.value || item.color || item.hex || item.rgb;
+                                if (val) {
+                                    return {
+                                        value: val,
+                                        name: item.name || val,
+                                        variable: item.variable || null
+                                    };
+                                }
+                            }
+                            return null;
+                        };
+
+                        let itemsToProcess = [];
+                        if (Array.isArray(data)) {
+                            itemsToProcess = data;
+                        } else if (typeof data === 'object') {
+                            itemsToProcess = data.colors || data.palette || data.items || [];
+                        }
+
+                        itemsToProcess.forEach(item => {
+                            const c = extract(item);
+                            if (c) newColors.push(c);
                         });
-                        this.saveProjectColors();
+
+                    } catch (e) {
+                        console.warn('JSON parse failed, falling back to regex', e);
+                        isJson = false;
                     }
                 }
+
+                // Fallback to Regex
+                if (!isJson || newColors.length === 0) {
+                     const hexRegex = /#[0-9a-fA-F]{3,8}/g;
+                     const rgbRegex = /rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)|rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*[\d.]+\s*\)/g;
+                     const hslRegex = /hsl\(\s*\d+\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*\)|hsla\(\s*\d+\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+\s*\)/g;
+
+                     const hexMatches = text.match(hexRegex) || [];
+                     const rgbMatches = text.match(rgbRegex) || [];
+                     const hslMatches = text.match(hslRegex) || [];
+                     
+                     [...hexMatches, ...rgbMatches, ...hslMatches].forEach(match => {
+                         newColors.push({
+                             value: match,
+                             name: match,
+                             variable: null
+                         });
+                     });
+                }
+
+                if (newColors.length > 0) {
+                    if (replaceCheck.checked) {
+                        this.projectColors = [];
+                    }
+                    
+                    newColors.forEach(c => {
+                        // Check duplicate by value
+                        const exists = this.projectColors.find(existing => existing.value === c.value);
+                        if (!exists) {
+                            this.projectColors.push(c);
+                        }
+                    });
+                    this.saveProjectColors();
+                    this.logConsole(`Imported ${newColors.length} colors`, 'success');
+                } else {
+                    this.logConsole('No valid colors found to import', 'warning');
+                }
+
                 // Refresh Inspector if open
                 if (Builder.selectedElement) this.updatePropertyInspector(Builder.selectedElement);
             }
@@ -4081,12 +4590,18 @@ ${html}
 
     exportProject: function() {
         const html = Builder.getHTML();
+        
+        // Get Root Variables
+        const rootVars = document.getElementById('vuc-root-vars');
+        const rootVarsCss = rootVars ? rootVars.innerHTML : '';
+
         const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <title>Exported Project</title>
     <style>body { font-family: sans-serif; }</style>
+    ${rootVarsCss ? `<style id="project-vars">\n${rootVarsCss}\n</style>` : ''}
 </head>
 <body>
 ${html}

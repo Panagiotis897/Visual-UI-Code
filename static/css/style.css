@@ -600,6 +600,53 @@ body, html {
     padding: 10px;
 }
 
+/* Animation Controls */
+.anim-controls-panel .control-group {
+    margin-bottom: 15px;
+}
+
+.anim-controls-panel label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.anim-controls-panel input[type="number"],
+.anim-controls-panel input[type="text"],
+.anim-controls-panel select {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.anim-controls-panel input:focus,
+.anim-controls-panel select:focus {
+    outline: none;
+    border-color: var(--text-accent);
+}
+
+.bezier-editor {
+    cursor: crosshair;
+}
+
+.btn-secondary {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.btn-secondary:hover {
+    background: var(--bg-input-focus);
+}
+
 .empty-state {
     color: var(--text-secondary);
     text-align: center;
