@@ -2023,6 +2023,144 @@ Views:
         }
     },
 
+    showExportToJSModal: function(el) {
+        if (!el) return;
+
+        // Fetch JS/TS files
+        fetch('/api/list_files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: this.currentProjectPath, recursive: true })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error fetching files: ' + data.error);
+                return;
+            }
+
+            const jsFiles = data.items.filter(f => f.type === 'file' && /\.(js|ts)$/i.test(f.name));
+            
+            if (jsFiles.length === 0) {
+                alert('No JS/TS files found in project.');
+                return;
+            }
+
+            // Create Modal Content
+            const content = document.createElement('div');
+            content.style.padding = '10px';
+            
+            content.innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <label style="display:block; margin-bottom:5px; color:#ccc;">Select Target File:</label>
+                    <select id="export-js-file" class="prop-input" style="width:100%;">
+                        ${jsFiles.map(f => `<option value="${f.path}">${f.name} (${f.path.replace(this.currentProjectPath, '').replace(/^[\/\\]/, '')})</option>`).join('')}
+                    </select>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display:block; margin-bottom:5px; color:#ccc;">Event Type:</label>
+                    <select id="export-js-event" class="prop-input" style="width:100%;">
+                        <option value="click">Click (onclick)</option>
+                        <option value="mouseover">Mouse Over (hover)</option>
+                        <option value="mouseout">Mouse Out</option>
+                        <option value="change">Change (input)</option>
+                        <option value="input">Input (typing)</option>
+                        <option value="submit">Submit (form)</option>
+                        <option value="keydown">Key Down</option>
+                        <option value="keyup">Key Up</option>
+                        <option value="DOMContentLoaded">On Load (document)</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 15px;">
+                     <label style="display:block; margin-bottom:5px; color:#ccc;">Preview:</label>
+                     <pre id="export-js-preview" style="background:#1e1e1e; padding:10px; border-radius:4px; font-size:12px; overflow-x:auto; color:#d4d4d4; white-space: pre-wrap;"></pre>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:10px;">
+                    <button id="btn-cancel-export" class="btn-secondary">Cancel</button>
+                    <button id="btn-confirm-export" class="btn-primary">Export Code</button>
+                </div>
+            `;
+            
+            // Logic to update preview
+            const updatePreview = () => {
+                const event = content.querySelector('#export-js-event').value;
+                const code = this.generateExportCode(el, event);
+                content.querySelector('#export-js-preview').innerText = code;
+            };
+            
+            content.querySelector('#export-js-file').onchange = updatePreview;
+            content.querySelector('#export-js-event').onchange = updatePreview;
+            
+            // Initial preview
+            setTimeout(updatePreview, 0);
+
+            // Modal
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal-box" style="width: 500px;">
+                    <div class="modal-header">Export to JS <i class="fas fa-times close-modal"></i></div>
+                    <div class="modal-body"></div>
+                </div>
+            `;
+            modal.querySelector('.modal-body').appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Close logic
+            const close = () => {
+                if(document.body.contains(modal)) document.body.removeChild(modal);
+            };
+            modal.querySelector('.close-modal').onclick = close;
+            content.querySelector('#btn-cancel-export').onclick = close;
+            
+            content.querySelector('#btn-confirm-export').onclick = () => {
+                const file = content.querySelector('#export-js-file').value;
+                const event = content.querySelector('#export-js-event').value;
+                this.exportElementToJS(file, event, el);
+                close();
+            };
+        });
+    },
+
+    generateExportCode: function(el, eventType) {
+        let selector = '';
+        if (el.id) {
+            selector = `document.getElementById('${el.id}')`;
+        } else if (el.className) {
+             const cls = el.className.split(' ').filter(c => c !== 'selected' && c !== 'dropped-element')[0];
+             selector = cls ? `document.querySelector('.${cls}')` : `document.querySelector('${el.tagName.toLowerCase()}')`;
+        } else {
+             selector = `document.querySelector('${el.tagName.toLowerCase()}')`;
+        }
+        
+        return `
+// Event Listener for ${el.tagName.toLowerCase()} ${el.id ? '#' + el.id : ''}
+if (${selector}) {
+    ${selector}.addEventListener('${eventType}', function(e) {
+        // TODO: Handle ${eventType} logic
+        console.log('${eventType} triggered on ${el.tagName.toLowerCase()}');
+    });
+}`;
+    },
+
+    exportElementToJS: function(filePath, eventType, el) {
+        const code = this.generateExportCode(el, eventType);
+        
+        fetch('/api/append_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: filePath, content: code })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert('Code exported successfully!');
+            } else {
+                alert('Error exporting code: ' + data.error);
+            }
+        });
+    },
+
     renderProjectColors: function() {
         const grid = document.getElementById('project-colors');
         if (!grid) return;
@@ -4278,6 +4416,22 @@ Views:
         row2.appendChild(mediaLabel);
         row2.appendChild(mediaSelect);
         header.appendChild(row2);
+        
+        // Row 3: Export Button
+        const row3 = document.createElement('div');
+        row3.className = 'selector-row';
+        row3.style.justifyContent = 'flex-end';
+        row3.style.marginTop = '5px';
+        
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'small-btn';
+        exportBtn.innerHTML = '<i class="fas fa-file-export"></i> Export JS';
+        exportBtn.title = 'Export Event Listener to JS/TS File';
+        exportBtn.style.width = '100%';
+        exportBtn.onclick = () => this.showExportToJSModal(el);
+        
+        row3.appendChild(exportBtn);
+        header.appendChild(row3);
         
         container.appendChild(header);
 

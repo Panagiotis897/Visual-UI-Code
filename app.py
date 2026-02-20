@@ -223,6 +223,37 @@ def read_file():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/append_file', methods=['POST'])
+def append_file():
+    data = request.json
+    path = data.get('path')
+    content = data.get('content')
+    
+    if not path or content is None:
+        return jsonify({'error': 'Path and content are required'}), 400
+
+    full_path = os.path.expanduser(path)
+    
+    if not os.path.exists(full_path):
+        return jsonify({'error': 'File does not exist'}), 404
+
+    try:
+        # Check if file ends with newline
+        with open(full_path, 'r', encoding='utf-8') as f:
+            existing_content = f.read()
+            
+        prefix = ''
+        if existing_content and not existing_content.endswith('\n'):
+            prefix = '\n'
+            
+        with open(full_path, 'a', encoding='utf-8') as f:
+            f.write(prefix + content + '\n')
+            
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/save_file', methods=['POST'])
 def save_file():
     data = request.json
