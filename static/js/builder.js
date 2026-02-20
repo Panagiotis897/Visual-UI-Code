@@ -2,6 +2,8 @@ const Builder = {
     selectedElements: [],
     draggedType: null,
     canvas: null,
+    hoveredElement: null,
+    clipboard: null,
 
     init: function() {
         this.canvas = document.getElementById('preview-canvas');
@@ -12,6 +14,217 @@ const Builder = {
         this.setupDragAndDrop();
         this.setupCanvasInteractions();
         this.setupTooltip();
+        this.setupShortcuts();
+    },
+
+    setupShortcuts: function() {
+        document.addEventListener('keydown', (e) => {
+            // Only trigger if we are not in an input/textarea or contenteditable
+            if (e.target.tagName === 'INPUT' || 
+                e.target.tagName === 'TEXTAREA' || 
+                e.target.isContentEditable) return;
+
+            // Shift + C: Copy
+            if (e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+                e.preventDefault();
+                this.copySelected();
+            }
+
+            // Shift + V: Paste
+            if (e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+                e.preventDefault();
+                this.pasteToSelected();
+            }
+
+            // Shift + D: Wrap in Div
+            if (e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+                e.preventDefault();
+                this.wrapSelected('div');
+            }
+
+            // Shift + S: Wrap Hovered Text in Span
+            if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
+                e.preventDefault();
+                this.wrapHoveredText();
+            }
+
+            // Move Up/Down (Alt + Up/Down)
+            if (e.altKey && (e.key === 'ArrowUp')) {
+                e.preventDefault();
+                this.moveSelected('up');
+            }
+            if (e.altKey && (e.key === 'ArrowDown')) {
+                e.preventDefault();
+                this.moveSelected('down');
+            }
+        });
+    },
+
+    copySelected: function() {
+        if (this.selectedElements.length === 0) return;
+        // Clone the first selected element
+        this.clipboard = this.selectedElements[0].cloneNode(true);
+        // Remove selection classes from clipboard
+        this.clipboard.classList.remove('selected');
+        this.clipboard.style.outline = '';
+        if (window.App) window.App.logConsole('Element copied to clipboard', 'info');
+    },
+
+    pasteToSelected: function() {
+        if (!this.clipboard) return;
+        
+        let target = this.canvas;
+        if (this.selectedElements.length > 0) {
+            target = this.selectedElements[0];
+        }
+
+        // If target is not a container, append to its parent? Or after it?
+        // Usually paste *inside* if container, or *after* if not?
+        // User said "place". Let's assume append child if container, else append to parent.
+        
+        let appendTarget = target;
+        if (!this.isContainer(target) && target !== this.canvas) {
+            appendTarget = target.parentNode;
+        }
+
+        const clone = this.clipboard.cloneNode(true);
+        
+        // Regenerate IDs
+        const rehydrate = (el) => {
+            el.id = el.tagName.toLowerCase() + '-' + Math.random().toString(36).substr(2, 9);
+            el.classList.add('dropped-element'); // Ensure it has the class
+            Array.from(el.children).forEach(rehydrate);
+        };
+        rehydrate(clone);
+
+        appendTarget.appendChild(clone);
+        this.selectElement(clone);
+        if (window.App) {
+            window.App.updateCode();
+            window.App.saveState();
+            window.App.logConsole('Element pasted', 'success');
+        }
+    },
+
+    wrapSelected: function(tagName) {
+        if (this.selectedElements.length === 0) return;
+        
+        const firstEl = this.selectedElements[0];
+        const parent = firstEl.parentNode;
+        
+        // Filter elements that share the same parent as the first one
+        const siblings = this.selectedElements.filter(el => el.parentNode === parent);
+        
+        // Create wrapper
+        const wrapper = document.createElement(tagName);
+        wrapper.id = tagName + '-' + Math.random().toString(36).substr(2, 9);
+        wrapper.classList.add('dropped-element');
+        wrapper.style.padding = '10px'; // Visual aid
+        
+        // Find the first occurrence in the DOM to insert before
+        let insertRef = null;
+        // Use Array.from to iterate safely while modifying? No, we just need to find position.
+        const children = Array.from(parent.children);
+        for (let child of children) {
+            if (siblings.includes(child)) {
+                insertRef = child;
+                break;
+            }
+        }
+        
+        if (insertRef) {
+            parent.insertBefore(wrapper, insertRef);
+            
+            // Move siblings into wrapper in order
+            // We collect them first based on DOM order
+            const toMove = children.filter(child => siblings.includes(child));
+            
+            toMove.forEach(child => {
+                wrapper.appendChild(child);
+            });
+        }
+        
+        // Select wrapper
+        this.selectElement(wrapper);
+        
+        if (window.App) {
+            window.App.updateCode();
+            window.App.saveState();
+            window.App.logConsole(`Wrapped ${siblings.length} elements in <${tagName}>`, 'success');
+        }
+    },
+
+    wrapHoveredText: function() {
+        if (!this.hoveredElement) return;
+        
+        const el = this.hoveredElement;
+        // Check if it has text content
+        if (!el.textContent.trim()) return;
+
+        // Safety Check: Don't wrap if it contains block elements
+        // This prevents invalid HTML (block inside inline span)
+        const hasBlockChildren = Array.from(el.children).some(child => {
+            const display = window.getComputedStyle(child).display;
+            return display === 'block' || display === 'flex' || display === 'grid' || 
+                   ['DIV','P','SECTION','H1','H2','H3','H4','H5','H6','UL','OL','LI','TABLE','FORM'].includes(child.tagName);
+        });
+        
+        if (hasBlockChildren) {
+             if (window.App) window.App.logConsole('Cannot wrap block elements in span', 'warning');
+             return;
+        }
+
+        // We want to wrap the *text content* in a span
+        // But we don't want to break existing structure if it's complex.
+        // Simple case: The element contains text nodes.
+        
+        // Strategy: specific text node selection would be hard without mouse selection.
+        // "enclose the text into a span" -> imply the whole text of the element?
+        // Let's create a span, put the content inside, and replace.
+        
+        // If element IS a text node? (Mouse events usually target the element)
+        
+        // If the element is already a leaf node or mainly text
+        const span = document.createElement('span');
+        span.classList.add('dropped-element');
+        span.id = 'span-' + Math.random().toString(36).substr(2, 9);
+        
+        // Move all children to span?
+        while (el.firstChild) {
+            span.appendChild(el.firstChild);
+        }
+        
+        el.appendChild(span);
+        
+        if (window.App) {
+            window.App.updateCode();
+            window.App.saveState();
+            window.App.logConsole('Text wrapped in <span>', 'success');
+        }
+    },
+
+    moveSelected: function(direction) {
+        if (this.selectedElements.length === 0) return;
+        const el = this.selectedElements[0];
+        const parent = el.parentNode;
+        
+        if (direction === 'up') {
+            const prev = el.previousElementSibling;
+            if (prev) {
+                parent.insertBefore(el, prev);
+            }
+        } else if (direction === 'down') {
+            const next = el.nextElementSibling;
+            if (next) {
+                // insertBefore next.nextSibling (which is null if next is last, which works for append)
+                parent.insertBefore(el, next.nextElementSibling);
+            }
+        }
+        
+        if (window.App) {
+            window.App.updateCode();
+            window.App.saveState();
+        }
     },
 
     setupTooltip: function() {
@@ -25,10 +238,12 @@ const Builder = {
         // Mouse move handler
         this.canvas.addEventListener('mousemove', (e) => {
             const target = e.target;
+            this.hoveredElement = target;
             
             // Don't show for canvas itself
             if (target === this.canvas || target.classList.contains('preview-canvas')) {
                 tooltip.style.display = 'none';
+                this.hoveredElement = null;
                 return;
             }
 
@@ -83,6 +298,7 @@ const Builder = {
         // Hide on leave
         this.canvas.addEventListener('mouseleave', () => {
             tooltip.style.display = 'none';
+            this.hoveredElement = null;
         });
     },
 
@@ -140,9 +356,15 @@ const Builder = {
                 target = this.selectedElements[0];
             }
 
+            const fileData = e.dataTransfer.getData('application/x-visual-ui-file');
+            if (fileData) {
+                if (window.App) window.App.handleFileDrop(JSON.parse(fileData), target);
+                return;
+            }
+
             const type = e.dataTransfer.getData('text/plain');
             // Handle color drop
-            if (type.startsWith('color:')) {
+            if (type && type.startsWith('color:')) {
                 const color = type.split(':')[1];
                 if (target !== this.canvas) {
                     target.style.backgroundColor = color;

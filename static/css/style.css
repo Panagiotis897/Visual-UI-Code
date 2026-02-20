@@ -167,7 +167,7 @@ body, html {
 
 /* --- Sidebar (Left) --- */
 .sidebar {
-    width: 280px;
+    width: 500px;
     background-color: var(--bg-sidebar);
     border-right: 1px solid var(--border-color);
     display: flex;

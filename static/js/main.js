@@ -789,6 +789,20 @@ Views:
     },
 
     // --- Color Studio Logic ---
+    toggleProjectFiles: function() {
+        const container = document.getElementById('project-files-container');
+        const icon = document.getElementById('project-files-toggle-icon');
+        if (container.style.display === 'none') {
+            container.style.display = 'flex';
+            icon.classList.remove('fa-chevron-right');
+            icon.classList.add('fa-chevron-down');
+        } else {
+            container.style.display = 'none';
+            icon.classList.remove('fa-chevron-down');
+            icon.classList.add('fa-chevron-right');
+        }
+    },
+
     toggleColorStudio: function() {
         document.getElementById('color-studio-modal').style.display = 'flex';
         this.updateColorStudio();
@@ -1859,6 +1873,92 @@ Views:
     // --- Color Management ---
     projectColors: [],
 
+    importColorsJSON: function() {
+        document.getElementById('color-import-input').click();
+    },
+
+    handleColorImport: function(input) {
+        if (!input.files || input.files.length === 0) return;
+        const file = input.files[0];
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const json = JSON.parse(e.target.result);
+                if (!Array.isArray(json)) {
+                    alert('Invalid JSON: Must be an array of color objects.');
+                    return;
+                }
+                
+                let importedCount = 0;
+                json.forEach(item => {
+                    // Normalize to internal structure
+                    // Required: name, value
+                    // Optional: type (hex, rgb, hsl, rgba), variable
+                    
+                    if (!item.name || !item.value) return;
+                    
+                    // Check if already exists
+                    const exists = this.projectColors.some(c => c.value === item.value || c.name === item.name);
+                    if (!exists) {
+                        const newColor = {
+                            name: item.name,
+                            value: item.value,
+                            type: item.type || 'hex', // default
+                            variable: item.variable || null
+                        };
+                        this.projectColors.push(newColor);
+                        importedCount++;
+                    }
+                });
+                
+                if (importedCount > 0) {
+                    this.saveProjectColors();
+                    alert(`Imported ${importedCount} colors.`);
+                } else {
+                    alert('No new colors imported.');
+                }
+                
+            } catch (err) {
+                console.error('Error parsing JSON:', err);
+                alert('Error parsing JSON file.');
+            }
+            input.value = ''; // Reset input
+        };
+        reader.readAsText(file);
+    },
+
+    generateColorVariables: function() {
+        let updatedCount = 0;
+        this.projectColors.forEach(color => {
+            if (!color.variable) {
+                // Generate variable name from color name
+                // "Dark Blue" -> "--dark-blue"
+                let varName = '--' + color.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+                // Ensure valid CSS var
+                if (!varName.startsWith('--')) varName = '--color-' + varName; // fallback
+                
+                // Check uniqueness?
+                // Simple collision avoidance
+                let suffix = 1;
+                let originalVarName = varName;
+                while (this.projectColors.some(c => c.variable === varName && c !== color)) {
+                    varName = originalVarName + '-' + suffix++;
+                }
+                
+                color.variable = varName;
+                updatedCount++;
+            }
+        });
+        
+        if (updatedCount > 0) {
+            this.saveProjectColors();
+            alert(`Generated CSS variables for ${updatedCount} colors.`);
+        } else {
+            alert('All colors already have CSS variables.');
+        }
+    },
+
     loadProjectColors: function() {
         try {
             const raw = JSON.parse(localStorage.getItem('vuc_project_colors') || '[]');
@@ -1940,7 +2040,7 @@ Views:
             if (colorObj.variable) label += `<br><span style="opacity:0.7; font-size:10px">${colorObj.variable}</span>`;
             
             div.innerHTML = `<div class="color-preview" style="background:${color}"></div>
-                             <div class="color-info" style="font-size:11px; padding:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${colorObj.name}</div>`;
+                             <div class="color-info" style="font-size:11px; padding:4px; overflow:hidden; line-height:1.2; white-space:normal;">${label}</div>`;
             
             div.onclick = () => {
                 const valToApply = colorObj.variable ? `var(${colorObj.variable})` : color;
@@ -2388,11 +2488,14 @@ Views:
         const root = document.getElementById('preview-canvas'); 
         if (!root) return;
 
-        // Container Drop Zone (Append to Root)
+        // Container Drop Zone (Append to Root or Handle File Drop)
         container.ondragover = (e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
-            container.style.backgroundColor = 'rgba(0, 122, 204, 0.1)';
+            // Only highlight if not dragging a structure item (handled by items themselves)
+            if (!this.draggingElement) {
+                container.style.backgroundColor = 'rgba(0, 122, 204, 0.1)';
+            }
         };
         container.ondragleave = (e) => {
             e.preventDefault();
@@ -2401,8 +2504,17 @@ Views:
         container.ondrop = (e) => {
             e.preventDefault();
             container.style.backgroundColor = '';
+            
+            // Check for File Drop first
+            const fileData = e.dataTransfer.getData('application/x-visual-ui-file');
+            if (fileData) {
+                this.handleFileDrop(JSON.parse(fileData), root);
+                return;
+            }
+
+            // Check for new Component Drop
             const type = e.dataTransfer.getData('text/plain');
-            if (type) {
+            if (type && !type.includes('{') && type !== 'structure-item') {
                 Builder.createElement(type, root);
                 this.saveState();
                 this.updateCode();
@@ -2422,10 +2534,11 @@ Views:
             }
             
             const item = document.createElement('div');
+            item.domElement = element; // For touch events
             item.className = 'structure-item';
             item.style.paddingLeft = (depth * 15 + 5) + 'px';
-            item.style.paddingTop = '4px';
-            item.style.paddingBottom = '4px';
+            item.style.paddingTop = '6px'; // Increased for touch
+            item.style.paddingBottom = '6px'; // Increased for touch
             item.style.cursor = 'pointer';
             item.style.display = 'flex';
             item.style.alignItems = 'center';
@@ -2433,17 +2546,19 @@ Views:
             item.style.color = 'var(--text-primary)';
             item.draggable = true;
             
-            // Sync Selection (Green Highlight as requested)
+            // Sync Selection
             if (Builder.selectedElements.includes(element)) {
                 item.style.backgroundColor = 'rgba(0, 255, 0, 0.2)'; // Green tint
                 item.style.borderLeft = '3px solid #00ff00';
+                item.dataset.selected = 'true';
             } else {
                  item.style.borderLeft = '3px solid transparent';
+                 item.dataset.selected = 'false';
             }
             
             // Toggle / Icon Container
             const toggle = document.createElement('span');
-            toggle.style.width = '16px';
+            toggle.style.width = '20px'; // Larger touch target
             toggle.style.display = 'inline-block';
             toggle.style.textAlign = 'center';
             toggle.style.cursor = 'pointer';
@@ -2466,10 +2581,21 @@ Views:
             // Icon
             const tagName = element.tagName.toLowerCase();
             let iconClass = 'fas fa-code';
-            if (tagName === 'div') iconClass = 'far fa-square';
+            
+            // Container / Folder-like elements
+            if (['div', 'section', 'header', 'footer', 'main', 'nav', 'article', 'aside'].includes(tagName)) {
+                 if (this.collapsedElements.has(element)) {
+                     iconClass = 'fas fa-folder';
+                 } else {
+                     iconClass = 'fas fa-folder-open';
+                 }
+            }
+            
             if (tagName === 'img') iconClass = 'far fa-image';
-            if (tagName === 'p' || tagName.startsWith('h')) iconClass = 'fas fa-font';
+            if (tagName === 'p' || tagName.startsWith('h') || tagName === 'span' || tagName === 'a') iconClass = 'fas fa-font';
             if (tagName === 'button') iconClass = 'fas fa-toggle-on';
+            if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') iconClass = 'fas fa-keyboard';
+            if (tagName === 'form') iconClass = 'fab fa-wpforms';
             
             const icon = document.createElement('i');
             icon.className = iconClass;
@@ -2479,7 +2605,7 @@ Views:
             icon.style.color = '#dcb67a';
             item.appendChild(icon);
             
-            // Label Container (Flex)
+            // Label Container
             const labelContainer = document.createElement('div');
             labelContainer.style.flex = '1';
             labelContainer.style.display = 'flex';
@@ -2501,7 +2627,7 @@ Views:
             idInput.type = 'text';
             idInput.placeholder = '#id';
             idInput.value = element.id ? element.id : '';
-            idInput.className = 'tree-input'; // Will add CSS
+            idInput.className = 'tree-input';
             idInput.style.width = '60px';
             idInput.style.color = '#9cdcfe';
             idInput.onclick = (e) => e.stopPropagation();
@@ -2528,7 +2654,7 @@ Views:
             };
             labelContainer.appendChild(classInput);
 
-            // 4. Content Input (if text node or simple element)
+            // 4. Content Input
             let textContent = '';
             for (let node of element.childNodes) {
                 if (node.nodeType === 3 && node.nodeValue.trim()) {
@@ -2549,7 +2675,6 @@ Views:
                  contentInput.style.minWidth = '50px';
                  contentInput.onclick = (e) => e.stopPropagation();
                  contentInput.onchange = (e) => {
-                     // Try to update text node only
                      let updated = false;
                      for (let node of element.childNodes) {
                         if (node.nodeType === 3) {
@@ -2570,7 +2695,6 @@ Views:
             // Events
             item.onmouseover = (e) => {
                 e.stopPropagation();
-                // Shine on preview
                 Builder.highlightDropTarget(element);
                 if (!Builder.selectedElements.includes(element)) {
                      item.style.backgroundColor = 'var(--bg-hover)';
@@ -2589,48 +2713,161 @@ Views:
                 e.stopPropagation();
                 const multi = e.ctrlKey || e.metaKey;
                 Builder.selectElement(element, multi);
-                // The selection update triggers updatePropertyInspector which triggers renderStructureTree
-                // But just in case:
                 this.renderStructureTree(); 
             };
-            
-            // Double Click to Edit
             item.ondblclick = (e) => {
                 e.stopPropagation();
                 this.editStructureItem(element);
             };
             
-            // Drag & Drop (Onto the tree item)
-            // Allow dropping components FROM sidebar ONTO this tree item
+            // --- Drag & Drop Reordering ---
+            
+            item.ondragstart = (e) => {
+                e.stopPropagation();
+                this.draggingElement = element;
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', 'structure-item');
+                // Use a timeout to hide the element slightly after drag starts (optional visual)
+                setTimeout(() => item.style.opacity = '0.5', 0);
+            };
+            
+            item.ondragend = (e) => {
+                item.style.opacity = '1';
+                this.draggingElement = null;
+                this.dropPosition = null;
+                // Clear any leftover styles on items
+                const items = document.querySelectorAll('.structure-item');
+                items.forEach(i => {
+                    i.style.borderTop = '';
+                    i.style.borderBottom = '';
+                    i.style.backgroundColor = i === item && Builder.selectedElements.includes(element) ? 'rgba(0, 255, 0, 0.2)' : (i === item ? 'transparent' : i.style.backgroundColor);
+                    // Reset borders
+                    i.style.borderBottom = '1px solid var(--border-color)';
+                    if (i.dataset.selected === 'true') i.style.borderLeft = '3px solid #00ff00';
+                    else i.style.borderLeft = '3px solid transparent';
+                });
+            };
+
             item.ondragover = (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                item.style.border = '1px dashed #007acc';
+                e.dataTransfer.dropEffect = 'move';
+                
+                // If dragging a new component (not existing element)
+                if (!this.draggingElement) {
+                    // Logic for new components: usually append inside
+                    item.style.border = '2px dashed #007acc';
+                    return;
+                }
+
+                // Don't allow dropping on self or children (prevent infinite loops)
+                if (this.draggingElement === element || this.draggingElement.contains(element)) {
+                    return;
+                }
+
+                const rect = item.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                const height = rect.height;
+                const isContainer = Builder.isContainer(element);
+                
+                // Reset styles
+                item.style.borderTop = '';
+                item.style.borderBottom = '1px solid var(--border-color)';
+                if (!Builder.selectedElements.includes(element)) item.style.backgroundColor = 'transparent';
+
+                // Determine Zone
+                // Top 25%: Before
+                // Bottom 25%: After
+                // Middle 50%: Inside (if container)
+                
+                if (y < height * 0.25) {
+                    this.dropPosition = 'before';
+                    item.style.borderTop = '2px solid #007acc';
+                } else if (y > height * 0.75) {
+                    this.dropPosition = 'after';
+                    item.style.borderBottom = '2px solid #007acc';
+                } else {
+                    if (isContainer) {
+                        this.dropPosition = 'inside';
+                        item.style.backgroundColor = 'rgba(0, 122, 204, 0.2)';
+                        item.style.border = '1px dashed #007acc';
+                    } else {
+                        // Fallback for non-containers in middle -> treat as after
+                        this.dropPosition = 'after';
+                        item.style.borderBottom = '2px solid #007acc';
+                    }
+                }
             };
+            
             item.ondragleave = (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                // Reset visual feedback
+                item.style.borderTop = '';
+                item.style.borderBottom = '1px solid var(--border-color)';
                 item.style.border = 'none';
                 item.style.borderBottom = '1px solid var(--border-color)';
-                if (Builder.selectedElements.includes(element)) item.style.borderLeft = '3px solid #00ff00';
+                if (Builder.selectedElements.includes(element)) {
+                    item.style.backgroundColor = 'rgba(0, 255, 0, 0.2)';
+                    item.style.borderLeft = '3px solid #00ff00';
+                } else {
+                    item.style.backgroundColor = 'transparent';
+                    item.style.borderLeft = '3px solid transparent';
+                }
             };
+
             item.ondrop = (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                item.style.border = 'none';
-                item.style.borderBottom = '1px solid var(--border-color)';
-                if (Builder.selectedElements.includes(element)) item.style.borderLeft = '3px solid #00ff00';
+                
+                // Handle File Drop
+                const fileData = e.dataTransfer.getData('application/x-visual-ui-file');
+                if (fileData) {
+                    this.handleFileDrop(JSON.parse(fileData), element);
+                    return;
+                }
 
+                // Handle New Component Drop
                 const type = e.dataTransfer.getData('text/plain');
-                if (type) {
-                    // Create element inside this target
+                if (!this.draggingElement && type && !type.includes('{') && type !== 'structure-item') {
                     Builder.createElement(type, element);
                     this.saveState();
                     this.updateCode();
                     this.renderStructureTree();
+                    return;
                 }
+
+                // Handle Reordering
+                if (this.draggingElement && this.dropPosition) {
+                    // Safety check
+                    if (this.draggingElement === element || this.draggingElement.contains(element)) return;
+
+                    const parent = element.parentNode;
+                    
+                    try {
+                        if (this.dropPosition === 'before') {
+                            parent.insertBefore(this.draggingElement, element);
+                        } else if (this.dropPosition === 'after') {
+                            parent.insertBefore(this.draggingElement, element.nextSibling);
+                        } else if (this.dropPosition === 'inside') {
+                            element.appendChild(this.draggingElement);
+                            // Auto-expand if dropped inside
+                            this.collapsedElements.delete(element);
+                        }
+                        
+                        this.saveState();
+                        this.updateCode();
+                        Builder.selectElement(this.draggingElement); // Keep selection
+                        this.renderStructureTree();
+                    } catch (err) {
+                        console.error('Move failed:', err);
+                    }
+                }
+                
+                this.draggingElement = null;
+                this.dropPosition = null;
             };
-            
+
             container.appendChild(item);
             
             // Children
@@ -2922,6 +3159,57 @@ Views:
         });
     },
 
+    handleFileDrop: function(file, target) {
+        if (!file || file.type === 'dir') return;
+
+        let relPath = file.name; // Default to name
+        if (this.currentProjectPath && file.path.startsWith(this.currentProjectPath)) {
+            // Simple relative path (assumes file is in project)
+            // Ideally should be relative to current HTML file location
+            relPath = file.path.substring(this.currentProjectPath.length + 1).replace(/\\/g, '/');
+        }
+
+        if (file.name.endsWith('.css')) {
+            // Check for existing link
+            const existing = document.getElementById('preview-canvas').querySelectorAll('link[rel="stylesheet"]');
+            for(let link of existing) {
+                if(link.getAttribute('href') === relPath) {
+                    this.logConsole('CSS already linked: ' + relPath, 'info');
+                    return;
+                }
+            }
+
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = relPath;
+            // Append to canvas root (simulating head/body)
+            document.getElementById('preview-canvas').appendChild(link);
+            this.logConsole(`Linked CSS: ${relPath}`, 'success');
+        } else if (file.name.endsWith('.js')) {
+            const script = document.createElement('script');
+            script.src = relPath;
+            target.appendChild(script);
+            this.logConsole(`Linked JS: ${relPath}`, 'success');
+        } else if (file.name.match(/\.(jpg|jpeg|png|gif|svg|webp)$/i)) {
+            if (target.tagName === 'IMG') {
+                target.src = relPath;
+                this.logConsole(`Updated Image Source: ${relPath}`, 'success');
+            } else {
+                const img = document.createElement('img');
+                img.src = relPath;
+                img.alt = file.name;
+                img.classList.add('dropped-element');
+                target.appendChild(img);
+                Builder.selectElement(img);
+                this.logConsole(`Added Image: ${relPath}`, 'success');
+            }
+        }
+        
+        this.saveState();
+        this.updateCode();
+        this.renderStructureTree();
+    },
+
     refreshFileTree: function() {
         // Get path from localStorage or default
         // We set this in startNewProject (need to update that too)
@@ -3022,6 +3310,23 @@ Views:
             
             const row = document.createElement('div');
             row.className = 'file-row';
+            
+            // Drag & Drop Support
+            row.draggable = true;
+            row.ondragstart = (e) => {
+                e.stopPropagation();
+                e.dataTransfer.setData('application/x-visual-ui-file', JSON.stringify({
+                    path: item.path,
+                    name: item.name,
+                    type: item.type
+                }));
+                e.dataTransfer.setData('text/plain', item.name);
+                e.dataTransfer.effectAllowed = 'copy';
+                row.style.opacity = '0.5';
+            };
+            row.ondragend = (e) => {
+                row.style.opacity = '1';
+            };
             
             // Icon Logic
             const icon = document.createElement('i');

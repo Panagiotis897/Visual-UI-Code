@@ -39,7 +39,8 @@
     margin: 0;
     font-family: 'Segoe WPC', 'Segoe UI', sans-serif; /* VS Code font stack */
     overflow-y: auto;
-    height: calc(100% - 22px); /* Subtract header height */
+    /* height: calc(100% - 22px); Removed fixed height for flex layout */
+    height: 100%;
 }
 
 #file-tree ul {

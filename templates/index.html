@@ -95,135 +95,129 @@
             <aside class="sidebar" id="component-sidebar">
                 <!-- Sidebar Tabs -->
                 <div class="sidebar-tabs modern-tabs">
-                     <button id="tab-files" data-tab="files"><i class="fas fa-folder"></i></button>
                      <!-- Components merged into HTML tab -->
                      <button id="tab-structure" class="active" data-tab="structure">HTML</button>
                      <button id="tab-css" data-tab="css">CSS</button>
                      <button id="tab-js" data-tab="js">JS</button>
                 </div>
 
-                <!-- Files Panel -->
-                <div id="sidebar-content-files" class="sidebar-content" style="display:none; padding: 0;">
-                    <div class="explorer-section-header">
-                        <span id="explorer-project-name"><i class="fas fa-chevron-down"></i> &nbsp; EXPLORER</span>
-                        <div style="display:flex; gap:8px; padding-right:5px;">
-                            <i class="fas fa-sync-alt" onclick="App.refreshFileTree()" title="Refresh" style="cursor:pointer; font-size:12px;"></i>
-                        </div>
-                    </div>
-                    <!-- Action Bar -->
-                    <div style="display:flex; gap:5px; padding:8px 10px; border-bottom:1px solid var(--border-color); background-color: var(--bg-sidebar);">
-                        <button onclick="App.createNewFile()" title="Create New File" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; padding:6px; font-size:12px; background-color:var(--bg-input); border:1px solid var(--border-color); color:var(--text-primary); cursor:pointer; border-radius:2px;">
-                            <i class="fas fa-file-circle-plus" style="color:var(--text-accent);"></i> New File
-                        </button>
-                        <button onclick="App.createNewFolder()" title="Create New Folder" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; padding:6px; font-size:12px; background-color:var(--bg-input); border:1px solid var(--border-color); color:var(--text-primary); cursor:pointer; border-radius:2px;">
-                            <i class="fas fa-folder-plus" style="color:#dcb67a;"></i> New Folder
-                        </button>
-                    </div>
-                    <div id="file-tree" class="file-tree-container">
-                        <!-- JS populated -->
-                        <div style="color:#666; font-style:italic; padding: 20px;">No project open.</div>
-                    </div>
-                </div>
-
                 <!-- Structure Panel (DOM Tree + Components) -->
                 <div id="sidebar-content-structure" class="sidebar-content active" style="display:flex; flex-direction:column;">
                     
-                    <!-- Components Section (Top Half) -->
-                    <div style="flex: 1; display: flex; flex-direction: column; border-bottom: 1px solid var(--border-color); min-height: 200px; overflow: hidden;">
-                        <div class="panel-header">Components</div>
-                        <div class="component-categories" style="flex: 1; overflow-y: auto;">
-                            <!-- Saved Blocks (Dynamic) -->
-                            <div class="category" id="category-saved-blocks" style="display:none;">
-                                <div class="category-title"><i class="fas fa-cube"></i> Saved Blocks <i class="fas fa-chevron-down"></i></div>
-                                <div class="category-items" id="saved-blocks-list">
-                                    <!-- Injected via JS -->
-                                </div>
-                            </div>
-
-                            <!-- Layout -->
-                            <div class="category">
-                                <div class="category-title"><i class="fas fa-layer-group"></i> Layout <i class="fas fa-chevron-down"></i></div>
-                                <div class="category-items">
-                                    <div class="draggable-item" draggable="true" data-type="div"><i class="far fa-square"></i> Div Block</div>
-                                    <div class="draggable-item" draggable="true" data-type="container"><i class="fas fa-box-open"></i> Container</div>
-                                    <div class="draggable-item" draggable="true" data-type="section"><i class="fas fa-stream"></i> Section</div>
-                                    <div class="draggable-item" draggable="true" data-type="article"><i class="far fa-newspaper"></i> Article</div>
-                                    <div class="draggable-item" draggable="true" data-type="main"><i class="fas fa-bullseye"></i> Main</div>
-                                    <div class="draggable-item" draggable="true" data-type="aside"><i class="fas fa-columns"></i> Aside</div>
-                                </div>
-                            </div>
-
-                            <!-- Semantic -->
-                            <div class="category">
-                                <div class="category-title"><i class="fas fa-code"></i> Semantic <i class="fas fa-chevron-down"></i></div>
-                                <div class="category-items">
-                                    <div class="draggable-item" draggable="true" data-type="header"><i class="fas fa-heading"></i> Header</div>
-                                    <div class="draggable-item" draggable="true" data-type="footer"><i class="fas fa-shoe-prints"></i> Footer</div>
-                                    <div class="draggable-item" draggable="true" data-type="nav"><i class="fas fa-compass"></i> Nav</div>
-                                </div>
-                            </div>
-
-                            <!-- Typography -->
-                            <div class="category">
-                                <div class="category-title"><i class="fas fa-font"></i> Typography <i class="fas fa-chevron-down"></i></div>
-                                <div class="category-items">
-                                    <div class="draggable-item" draggable="true" data-type="h1"><b>H1</b> Heading 1</div>
-                                    <div class="draggable-item" draggable="true" data-type="h2"><b>H2</b> Heading 2</div>
-                                    <div class="draggable-item" draggable="true" data-type="h3"><b>H3</b> Heading 3</div>
-                                    <div class="draggable-item" draggable="true" data-type="p"><i class="fas fa-paragraph"></i> Paragraph</div>
-                                    <div class="draggable-item" draggable="true" data-type="link"><i class="fas fa-link"></i> Link</div>
-                                    <div class="draggable-item" draggable="true" data-type="span"><i class="fas fa-text-width"></i> Span</div>
-                                </div>
-                            </div>
-
-                            <!-- Forms -->
-                            <div class="category">
-                                <div class="category-title"><i class="fas fa-check-square"></i> Forms <i class="fas fa-chevron-down"></i></div>
-                                <div class="category-items">
-                                    <div class="draggable-item" draggable="true" data-type="form"><i class="fab fa-wpforms"></i> Form</div>
-                                    <div class="draggable-item" draggable="true" data-type="label"><i class="fas fa-tag"></i> Label</div>
-                                    <div class="draggable-item" draggable="true" data-type="input"><i class="fas fa-keyboard"></i> Input (Text)</div>
-                                    <div class="draggable-item" draggable="true" data-type="input_email"><i class="fas fa-envelope"></i> Email</div>
-                                    <div class="draggable-item" draggable="true" data-type="input_password"><i class="fas fa-key"></i> Password</div>
-                                    <div class="draggable-item" draggable="true" data-type="textarea"><i class="fas fa-align-left"></i> Text Area</div>
-                                    <div class="draggable-item" draggable="true" data-type="checkbox"><i class="far fa-check-square"></i> Checkbox</div>
-                                    <div class="draggable-item" draggable="true" data-type="radio"><i class="far fa-circle"></i> Radio</div>
-                                    <div class="draggable-item" draggable="true" data-type="select"><i class="fas fa-list"></i> Select</div>
-                                    <div class="draggable-item" draggable="true" data-type="button"><i class="fas fa-toggle-on"></i> Button</div>
-                                </div>
-                            </div>
-
-                            <!-- Media -->
-                            <div class="category">
-                                <div class="category-title"><i class="fas fa-photo-video"></i> Media <i class="fas fa-chevron-down"></i></div>
-                                <div class="category-items">
-                                    <div class="draggable-item" draggable="true" data-type="image"><i class="far fa-image"></i> Image</div>
-                                    <div class="draggable-item" draggable="true" data-type="video"><i class="fas fa-video"></i> Video</div>
-                                    <div class="draggable-item" draggable="true" data-type="audio"><i class="fas fa-volume-up"></i> Audio</div>
-                                    <div class="draggable-item" draggable="true" data-type="iframe"><i class="fas fa-window-maximize"></i> Iframe</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="panel-header mt-auto" onclick="App.switchSidebar('assets')" style="cursor: pointer; border-top: 1px solid var(--border-color);">
-                            <i class="fas fa-images"></i> Manage Assets
+                    <!-- Project Files Header (Collapsible) -->
+                    <div class="panel-header" onclick="App.toggleProjectFiles()" style="cursor: pointer; border-bottom: 1px solid var(--border-color); flex: 0 0 auto;">
+                        <span><i id="project-files-toggle-icon" class="fas fa-chevron-right" style="margin-right: 5px; font-size: 0.8rem;"></i> Project Files</span>
+                        <button onclick="App.refreshFileTree(); event.stopPropagation();" title="Refresh" style="background:none; border:none; color:#ccc; cursor:pointer; margin-left:auto;"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                    
+                    <!-- Project Files Content (Initially Hidden) -->
+                    <div id="project-files-container" style="display: none; flex-direction: column; height: 200px; border-bottom: 1px solid var(--border-color); overflow: hidden; flex: 0 0 auto;">
+                        <div id="file-tree" class="file-tree-container" style="flex:1; overflow-y: auto;">
+                            <!-- JS populated -->
+                            <div style="color:#666; padding:10px;">No project open.</div>
                         </div>
                     </div>
 
-                    <!-- Structure Tree (Bottom Half) -->
-                    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-                        <div class="panel-header">
-                            <span>Structure</span>
-                            <div style="display:flex; gap:5px;">
-                                 <select id="structure-file-select" onchange="App.loadStructureFromFile(this.value)" style="background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border-color); padding:2px; font-size:11px; max-width: 100px;">
-                                     <option value="">Current</option>
-                                 </select>
-                                 <button onclick="App.renderStructureTree()" title="Refresh" style="background:none; border:none; color:#ccc; cursor:pointer;"><i class="fas fa-sync-alt"></i></button>
-                                 <button onclick="App.exportSelectedElements()" title="Export Selected" style="background:none; border:none; color:#ccc; cursor:pointer;"><i class="fas fa-file-export"></i></button>
+                    <!-- Split View: Components | Structure -->
+                    <div style="flex: 1; display: flex; flex-direction: row; overflow: hidden;">
+                        
+                        <!-- Left: Components -->
+                        <div style="flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border-color); min-width: 0;">
+                            <div class="panel-header">Components</div>
+                            <div class="component-categories" style="flex: 1; overflow-y: auto;">
+                                <!-- Saved Blocks (Dynamic) -->
+                                <div class="category" id="category-saved-blocks" style="display:none;">
+                                    <div class="category-title"><i class="fas fa-cube"></i> Saved Blocks <i class="fas fa-chevron-down"></i></div>
+                                    <div class="category-items" id="saved-blocks-list">
+                                        <!-- Injected via JS -->
+                                    </div>
+                                </div>
+    
+                                <!-- Layout -->
+                                <div class="category">
+                                    <div class="category-title"><i class="fas fa-layer-group"></i> Layout <i class="fas fa-chevron-down"></i></div>
+                                    <div class="category-items">
+                                        <div class="draggable-item" draggable="true" data-type="div"><i class="far fa-square"></i> Div Block</div>
+                                        <div class="draggable-item" draggable="true" data-type="container"><i class="fas fa-box-open"></i> Container</div>
+                                        <div class="draggable-item" draggable="true" data-type="section"><i class="fas fa-stream"></i> Section</div>
+                                        <div class="draggable-item" draggable="true" data-type="article"><i class="far fa-newspaper"></i> Article</div>
+                                        <div class="draggable-item" draggable="true" data-type="main"><i class="fas fa-bullseye"></i> Main</div>
+                                        <div class="draggable-item" draggable="true" data-type="aside"><i class="fas fa-columns"></i> Aside</div>
+                                    </div>
+                                </div>
+    
+                                <!-- Semantic -->
+                                <div class="category">
+                                    <div class="category-title"><i class="fas fa-code"></i> Semantic <i class="fas fa-chevron-down"></i></div>
+                                    <div class="category-items">
+                                        <div class="draggable-item" draggable="true" data-type="header"><i class="fas fa-heading"></i> Header</div>
+                                        <div class="draggable-item" draggable="true" data-type="footer"><i class="fas fa-shoe-prints"></i> Footer</div>
+                                        <div class="draggable-item" draggable="true" data-type="nav"><i class="fas fa-compass"></i> Nav</div>
+                                    </div>
+                                </div>
+    
+                                <!-- Typography -->
+                                <div class="category">
+                                    <div class="category-title"><i class="fas fa-font"></i> Typography <i class="fas fa-chevron-down"></i></div>
+                                    <div class="category-items">
+                                        <div class="draggable-item" draggable="true" data-type="h1"><b>H1</b> Heading 1</div>
+                                        <div class="draggable-item" draggable="true" data-type="h2"><b>H2</b> Heading 2</div>
+                                        <div class="draggable-item" draggable="true" data-type="h3"><b>H3</b> Heading 3</div>
+                                        <div class="draggable-item" draggable="true" data-type="p"><i class="fas fa-paragraph"></i> Paragraph</div>
+                                        <div class="draggable-item" draggable="true" data-type="link"><i class="fas fa-link"></i> Link</div>
+                                        <div class="draggable-item" draggable="true" data-type="span"><i class="fas fa-text-width"></i> Span</div>
+                                    </div>
+                                </div>
+    
+                                <!-- Forms -->
+                                <div class="category">
+                                    <div class="category-title"><i class="fas fa-check-square"></i> Forms <i class="fas fa-chevron-down"></i></div>
+                                    <div class="category-items">
+                                        <div class="draggable-item" draggable="true" data-type="form"><i class="fab fa-wpforms"></i> Form</div>
+                                        <div class="draggable-item" draggable="true" data-type="label"><i class="fas fa-tag"></i> Label</div>
+                                        <div class="draggable-item" draggable="true" data-type="input"><i class="fas fa-keyboard"></i> Input (Text)</div>
+                                        <div class="draggable-item" draggable="true" data-type="input_email"><i class="fas fa-envelope"></i> Email</div>
+                                        <div class="draggable-item" draggable="true" data-type="input_password"><i class="fas fa-key"></i> Password</div>
+                                        <div class="draggable-item" draggable="true" data-type="textarea"><i class="fas fa-align-left"></i> Text Area</div>
+                                        <div class="draggable-item" draggable="true" data-type="checkbox"><i class="far fa-check-square"></i> Checkbox</div>
+                                        <div class="draggable-item" draggable="true" data-type="radio"><i class="far fa-circle"></i> Radio</div>
+                                        <div class="draggable-item" draggable="true" data-type="select"><i class="fas fa-list"></i> Select</div>
+                                        <div class="draggable-item" draggable="true" data-type="button"><i class="fas fa-toggle-on"></i> Button</div>
+                                    </div>
+                                </div>
+    
+                                <!-- Media -->
+                                <div class="category">
+                                    <div class="category-title"><i class="fas fa-photo-video"></i> Media <i class="fas fa-chevron-down"></i></div>
+                                    <div class="category-items">
+                                        <div class="draggable-item" draggable="true" data-type="image"><i class="far fa-image"></i> Image</div>
+                                        <div class="draggable-item" draggable="true" data-type="video"><i class="fas fa-video"></i> Video</div>
+                                        <div class="draggable-item" draggable="true" data-type="audio"><i class="fas fa-volume-up"></i> Audio</div>
+                                        <div class="draggable-item" draggable="true" data-type="iframe"><i class="fas fa-window-maximize"></i> Iframe</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="panel-header mt-auto" onclick="App.switchSidebar('assets')" style="cursor: pointer; border-top: 1px solid var(--border-color); flex: 0 0 auto;">
+                                <i class="fas fa-images"></i> Manage Assets
                             </div>
                         </div>
-                        <div id="structure-tree" class="structure-tree-container" style="flex:1; overflow-y: auto; padding: 5px;">
-                            <!-- JS populated -->
-                            <div style="color:#666; padding:10px;">No active structure</div>
+
+                        <!-- Right: Structure -->
+                        <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+                            <div class="panel-header">
+                                <span>Structure</span>
+                                <div style="display:flex; gap:5px;">
+                                     <select id="structure-file-select" onchange="App.loadStructureFromFile(this.value)" style="background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border-color); padding:2px; font-size:11px; max-width: 100px;">
+                                         <option value="">Current</option>
+                                     </select>
+                                     <button onclick="App.renderStructureTree()" title="Refresh" style="background:none; border:none; color:#ccc; cursor:pointer;"><i class="fas fa-sync-alt"></i></button>
+                                     <button onclick="App.exportSelectedElements()" title="Export Selected" style="background:none; border:none; color:#ccc; cursor:pointer;"><i class="fas fa-file-export"></i></button>
+                                </div>
+                            </div>
+                            <div id="structure-tree" class="structure-tree-container" style="flex:1; overflow-y: auto; padding: 5px;">
+                                <!-- JS populated -->
+                                <div style="color:#666; padding:10px;">No active structure</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -236,8 +230,13 @@
                          <div class="design-section">
                             <div class="section-title">
                                 <span>Colors</span>
-                                <button class="small-btn" onclick="App.toggleColorStudio()"><i class="fas fa-plus"></i></button>
+                                <div style="display:flex; gap:5px;">
+                                    <button class="small-btn" onclick="App.generateColorVariables()" title="Convert to CSS Variables"><i class="fas fa-magic"></i></button>
+                                    <button class="small-btn" onclick="App.importColorsJSON()" title="Import JSON"><i class="fas fa-file-import"></i></button>
+                                    <button class="small-btn" onclick="App.toggleColorStudio()" title="Add Color"><i class="fas fa-plus"></i></button>
+                                </div>
                             </div>
+                            <input type="file" id="color-import-input" style="display:none;" accept=".json" onchange="App.handleColorImport(this)">
                             <div class="color-grid" id="project-colors">
                                 <!-- Colors injected here -->
                             </div>

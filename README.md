@@ -62,8 +62,7 @@ A comprehensive, web-based integrated development environment (IDE) for visual U
 ---
 
 ## ⚠️ Security Note
-This application includes a terminal feature that allows executing shell commands from the browser. **This is intended for local development only.** Do not deploy this application to a public server without implementing proper authentication and security measures, as it could allow remote code execution.
-
+This application includes a terminal feature that allows executing shell commands from the browser.
 ---
 
 ## 📖 User Manual
@@ -81,6 +80,60 @@ This application includes a terminal feature that allows executing shell command
 3.  **Customize**: Click the element on the canvas to select it. Use the **Property Inspector** at the bottom left to change its text, color, or classes.
 4.  **Refine Code**: Switch to the center panel to fine-tune the generated HTML/CSS.
 5.  **Save & Export**: Use the top toolbar to save your progress or export the final `project.html`.
+
+---
+
+## ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action |
+| :--- | :--- |
+| **Alt + ↑** | Move selected element Up |
+| **Alt + ↓** | Move selected element Down |
+| **Shift + C** | Copy selected element |
+| **Shift + V** | Paste copied element into selected |
+| **Shift + D** | Wrap selected element(s) in a `<div>` |
+| **Shift + S** | Wrap hovered text in a `<span>` |
+
+---
+
+## 🎨 Color Management
+
+You can import custom color palettes using a JSON file.
+
+### **JSON Structure for Import**
+Create a `.json` file with an array of color objects:
+
+```json
+[
+  {
+    "name": "Primary Brand",
+    "value": "#007acc",
+    "type": "hex"
+  },
+  {
+    "name": "Secondary Accent",
+    "value": "rgb(255, 87, 34)",
+    "type": "rgb",
+    "variable": "--accent-color"
+  },
+  {
+    "name": "Success Green",
+    "value": "rgba(76, 175, 80, 0.9)",
+    "type": "rgba"
+  }
+]
+```
+
+| Property | Description | Required |
+| :--- | :--- | :--- |
+| `name` | The display name of the color. | ✅ Yes |
+| `value` | The color value (Hex, RGB, RGBA, HSL, etc.). | ✅ Yes |
+| `type` | The format type (e.g., `hex`, `rgb`). Default: `hex`. | ❌ No |
+| `variable` | A specific CSS variable name (e.g., `--my-color`). If omitted, one can be auto-generated. | ❌ No |
+
+### **Features**
+*   **Import JSON**: Upload your JSON file via the **Design System > Colors** panel.
+*   **Magic Variable Generation**: Click the Magic Wand button to automatically generate CSS variables (e.g., `--primary-brand`) for all imported colors.
 
 ---
 
