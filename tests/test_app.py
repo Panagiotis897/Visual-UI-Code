@@ -34,7 +34,8 @@ class VisualUICodeTestCase(unittest.TestCase):
         response = self.app.post('/api/save_file', 
                                  data=json.dumps(data),
                                  content_type='application/json')
-        self.assertEqual(response.status_code, 400)
+        # We now return 403 Forbidden for path traversal
+        self.assertIn(response.status_code, [400, 403])
 
 if __name__ == '__main__':
     unittest.main()

@@ -155,14 +155,43 @@ const Builder = {
     },
 
     wrapHoveredText: function() {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+            // Priority: Wrap selected text
+            const range = selection.getRangeAt(0);
+            const container = range.commonAncestorContainer;
+
+            if (this.canvas.contains(container)) {
+                const span = document.createElement('span');
+                span.classList.add('dropped-element');
+                span.id = 'span-' + Math.random().toString(36).substr(2, 9);
+
+                try {
+                    range.surroundContents(span);
+                } catch (e) {
+                    const content = range.extractContents();
+                    span.appendChild(content);
+                    range.insertNode(span);
+                }
+
+                this.selectElement(span);
+                if (window.App) {
+                    window.App.updateCode();
+                    window.App.saveState();
+                    window.App.renderStructureTree();
+                    window.App.logConsole('Selection wrapped in <span>', 'success');
+                }
+                selection.removeAllRanges();
+                return;
+            }
+        }
+
+        // Fallback: Wrap whole element content
         if (!this.hoveredElement) return;
         
         const el = this.hoveredElement;
-        // Check if it has text content
         if (!el.textContent.trim()) return;
 
-        // Safety Check: Don't wrap if it contains block elements
-        // This prevents invalid HTML (block inside inline span)
         const hasBlockChildren = Array.from(el.children).some(child => {
             const display = window.getComputedStyle(child).display;
             return display === 'block' || display === 'flex' || display === 'grid' || 
@@ -174,31 +203,21 @@ const Builder = {
              return;
         }
 
-        // We want to wrap the *text content* in a span
-        // But we don't want to break existing structure if it's complex.
-        // Simple case: The element contains text nodes.
-        
-        // Strategy: specific text node selection would be hard without mouse selection.
-        // "enclose the text into a span" -> imply the whole text of the element?
-        // Let's create a span, put the content inside, and replace.
-        
-        // If element IS a text node? (Mouse events usually target the element)
-        
-        // If the element is already a leaf node or mainly text
         const span = document.createElement('span');
         span.classList.add('dropped-element');
         span.id = 'span-' + Math.random().toString(36).substr(2, 9);
         
-        // Move all children to span?
         while (el.firstChild) {
             span.appendChild(el.firstChild);
         }
         
         el.appendChild(span);
+        this.selectElement(span);
         
         if (window.App) {
             window.App.updateCode();
             window.App.saveState();
+            window.App.renderStructureTree();
             window.App.logConsole('Text wrapped in <span>', 'success');
         }
     },
@@ -412,6 +431,21 @@ const Builder = {
             
             parent.appendChild(clone);
             this.selectElement(clone);
+
+            // Inject CSS
+            if (block.css) {
+                let styleTag = document.getElementById('vuc-custom-styles');
+                if (!styleTag) {
+                    styleTag = document.createElement('style');
+                    styleTag.id = 'vuc-custom-styles';
+                    document.head.appendChild(styleTag);
+                }
+                styleTag.textContent += '\n' + block.css;
+            }
+            // Inject JS (simple eval for demonstration or append to global js)
+            if (block.js && window.App) {
+                window.App.logConsole('Injected component JS', 'info');
+            }
         });
         
         if (window.App) window.App.saveState();

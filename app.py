@@ -1,5 +1,6 @@
 import os
 import subprocess
+import re
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -8,7 +9,11 @@ app = Flask(__name__)
 CORS(app)
 
 # Asset Configuration
-ASSET_FOLDER = os.path.join(os.getcwd(), 'static', 'assets')
+SAFE_BASE_DIR = os.path.abspath(os.getcwd())
+PROJECTS_DIR = os.path.join(SAFE_BASE_DIR, 'projects')
+os.makedirs(PROJECTS_DIR, exist_ok=True)
+
+ASSET_FOLDER = os.path.join(SAFE_BASE_DIR, 'static', 'assets')
 os.makedirs(ASSET_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = ASSET_FOLDER
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'}
@@ -170,8 +175,10 @@ def list_files():
     if not path:
         return jsonify({'error': 'Path is required'}), 400
 
-    full_path = os.path.expanduser(path)
-    
+    full_path = os.path.abspath(os.path.expanduser(path))
+    if not full_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
+
     if not os.path.exists(full_path):
         return jsonify({'error': 'Path does not exist'}), 404
 
@@ -215,9 +222,13 @@ def read_file():
     
     if not path:
         return jsonify({'error': 'Path is required'}), 400
+
+    full_path = os.path.abspath(os.path.expanduser(path))
+    if not full_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
         
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(full_path, 'r', encoding='utf-8') as f:
             content = f.read()
         return jsonify({'content': content})
     except Exception as e:
@@ -232,7 +243,9 @@ def append_file():
     if not path or content is None:
         return jsonify({'error': 'Path and content are required'}), 400
 
-    full_path = os.path.expanduser(path)
+    full_path = os.path.abspath(os.path.expanduser(path))
+    if not full_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
     
     if not os.path.exists(full_path):
         return jsonify({'error': 'File does not exist'}), 404
@@ -260,12 +273,12 @@ def save_file():
     filename = data.get('filename')
     content = data.get('content')
     
-    # Basic path traversal protection
-    if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
-         return jsonify({'error': 'Invalid filename'}), 400
+    full_path = os.path.abspath(os.path.join(SAFE_BASE_DIR, filename))
+    if not full_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
          
     try:
-        with open(filename, 'w') as f:
+        with open(full_path, 'w') as f:
             f.write(content)
         return jsonify({'success': True})
     except Exception as e:
@@ -279,11 +292,9 @@ def create_folder():
     if not path:
         return jsonify({'error': 'Path is required'}), 400
         
-    full_path = os.path.expanduser(path)
-    
-    # Basic path traversal protection
-    if '..' in path:
-         return jsonify({'error': 'Invalid path'}), 400
+    full_path = os.path.abspath(os.path.expanduser(path))
+    if not full_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
 
     try:
         os.makedirs(full_path, exist_ok=True)
@@ -299,10 +310,9 @@ def create_file():
     if not path:
         return jsonify({'error': 'Path is required'}), 400
         
-    full_path = os.path.expanduser(path)
-    
-    if '..' in path:
-         return jsonify({'error': 'Invalid path'}), 400
+    full_path = os.path.abspath(os.path.expanduser(path))
+    if not full_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
 
     try:
         # Create parent directories if they don't exist
@@ -322,7 +332,9 @@ def delete_file():
     if not path:
         return jsonify({'error': 'Path is required'}), 400
         
-    full_path = os.path.expanduser(path)
+    full_path = os.path.abspath(os.path.expanduser(path))
+    if not full_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
     
     try:
         if os.path.isdir(full_path):
@@ -343,12 +355,120 @@ def rename_file():
     if not old_path or not new_path:
         return jsonify({'error': 'Both paths are required'}), 400
         
-    full_old_path = os.path.expanduser(old_path)
-    full_new_path = os.path.expanduser(new_path)
+    full_old_path = os.path.abspath(os.path.expanduser(old_path))
+    full_new_path = os.path.abspath(os.path.expanduser(new_path))
+    if not full_old_path.startswith(SAFE_BASE_DIR) or not full_new_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
     
     try:
         os.rename(full_old_path, full_new_path)
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/github_import', methods=['POST'])
+def github_import():
+    data = request.json
+    repo_url = data.get('repo_url')
+
+    if not repo_url:
+        return jsonify({'error': 'Repository URL is required'}), 400
+
+    # Extract repo name from URL and sanitize
+    repo_name = secure_filename(repo_url.split('/')[-1].replace('.git', ''))
+    full_dest_path = os.path.abspath(os.path.join(PROJECTS_DIR, repo_name))
+
+    # Path Traversal Check
+    if not full_dest_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Invalid destination path'}), 403
+
+    try:
+        if os.path.exists(full_dest_path):
+             return jsonify({'error': 'Destination already exists', 'path': full_dest_path}), 409
+
+        os.makedirs(os.path.dirname(full_dest_path), exist_ok=True)
+        result = subprocess.run(['git', 'clone', repo_url, full_dest_path], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            return jsonify({'error': 'Git clone failed', 'stderr': result.stderr}), 500
+
+        return jsonify({'success': True, 'path': full_dest_path, 'name': repo_name})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/index_project', methods=['POST'])
+def index_project():
+    data = request.json
+    path = data.get('path')
+
+    if not path:
+        return jsonify({'error': 'Path is required'}), 400
+
+    full_path = os.path.abspath(os.path.expanduser(path))
+
+    # Path Traversal Check
+    if not full_path.startswith(SAFE_BASE_DIR):
+         return jsonify({'error': 'Access denied: Path outside safe directory'}), 403
+
+    if not os.path.exists(full_path):
+        return jsonify({'error': 'Path does not exist'}), 404
+
+    classes = set()
+    ids = set()
+
+    # Regex patterns
+    # CSS: .classname or #idname
+    css_class_pattern = re.compile(r'\.([a-zA-Z0-9_-]+)')
+    css_id_pattern = re.compile(r'#([a-zA-Z0-9_-]+)')
+
+    # JS/TS/HTML specific patterns to be more precise
+    # class="name" or id="name"
+    attr_class_pattern = re.compile(r'class=[\'"]([a-zA-Z0-9_\-\s]+)[\'"]')
+    attr_id_pattern = re.compile(r'id=[\'"]([a-zA-Z0-9_-]+)[\'"]')
+
+    js_class_pattern = re.compile(r'classList\.(?:add|remove|contains|toggle)\([\'"]([a-zA-Z0-9_-]+)[\'"]\)')
+    js_id_pattern = re.compile(r'getElementById\([\'"]([a-zA-Z0-9_-]+)[\'"]\)')
+
+    # querySelector('.class') or querySelector('#id')
+    qs_pattern = re.compile(r'querySelector(?:All)?\([\'"]([.#][a-zA-Z0-9_-]+)[\'"]\)')
+
+    try:
+        for root, _, files in os.walk(full_path):
+            for file in files:
+                if file.endswith(('.css', '.scss', '.less', '.js', '.ts', '.html')):
+                    file_path = os.path.join(root, file)
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+
+                        if file.endswith(('.css', '.scss', '.less')):
+                            classes.update(css_class_pattern.findall(content))
+                            ids.update(css_id_pattern.findall(content))
+
+                        if file.endswith('.html'):
+                            # Find class="a b c"
+                            for cls_match in attr_class_pattern.findall(content):
+                                classes.update(cls_match.split())
+                            ids.update(attr_id_pattern.findall(content))
+                            # Also CSS-like if there are <style> tags
+                            classes.update(css_class_pattern.findall(content))
+                            ids.update(css_id_pattern.findall(content))
+
+                        if file.endswith(('.js', '.ts')):
+                            classes.update(js_class_pattern.findall(content))
+                            ids.update(js_id_pattern.findall(content))
+
+                            for qs_match in qs_pattern.findall(content):
+                                if qs_match.startswith('.'):
+                                    classes.add(qs_match[1:])
+                                elif qs_match.startswith('#'):
+                                    ids.add(qs_match[1:])
+
+        # Filter out common false positives if necessary
+        # For now, just return everything unique
+        return jsonify({
+            'classes': sorted(list(classes)),
+            'ids': sorted(list(ids))
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
