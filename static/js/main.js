@@ -126,6 +126,9 @@ const App = {
 
     init: function() {
         this.projectIndex = { classes: [], ids: [] };
+        this.styleTarget = 'inline';
+        this.styleTargetName = '';
+        this.lastSelectedElement = null;
         // Load expanded paths
         try {
             const saved = JSON.parse(localStorage.getItem('vuc_expanded_paths'));
@@ -4342,6 +4345,284 @@ if (${selector}) {
         document.getElementById('preview-size-label').innerText = mode.charAt(0).toUpperCase() + mode.slice(1);
     },
 
+    createCornerMapper: function(el) {
+        const container = document.createElement('div');
+        container.className = 'corner-mapper-container';
+
+        const icon = document.createElement('div');
+        icon.className = 'corner-mapper-icon';
+
+        let isLinked = true;
+        const linkBtn = document.createElement('div');
+        linkBtn.className = 'corner-link-btn active';
+        linkBtn.innerHTML = '<i class="fas fa-link"></i>';
+        linkBtn.onclick = () => {
+            isLinked = !isLinked;
+            linkBtn.classList.toggle('active', isLinked);
+            linkBtn.innerHTML = isLinked ? '<i class="fas fa-link"></i>' : '<i class="fas fa-unlink"></i>';
+        };
+        icon.appendChild(linkBtn);
+
+        const corners = ['tl', 'tr', 'bl', 'br'];
+        const handles = {};
+
+        // Parse existing radius
+        const currentRadius = this.getStyle('borderRadius') || '0px';
+        const radiusParts = currentRadius.split(' ').map(p => parseInt(p) || 0);
+        // [tl, tr, br, bl] - CSS order is slightly different
+        const vals = {
+            tl: radiusParts[0] || 0,
+            tr: radiusParts[1] || (radiusParts[0] || 0),
+            br: radiusParts[2] || (radiusParts[0] || 0),
+            bl: radiusParts[3] || (radiusParts[1] || (radiusParts[0] || 0))
+        };
+
+        const updateRadius = () => {
+            const tl = handles.tl.dataset.value || 0;
+            const tr = handles.tr.dataset.value || 0;
+            const br = handles.br.dataset.value || 0;
+            const bl = handles.bl.dataset.value || 0;
+
+            const value = `${tl}px ${tr}px ${br}px ${bl}px`;
+            el.style.borderRadius = value;
+            icon.style.borderRadius = value;
+        };
+
+        corners.forEach(c => {
+            const handle = document.createElement('div');
+            handle.className = `corner-handle ${c}`;
+            handle.dataset.value = vals[c];
+            handles[c] = handle;
+
+            handle.onpointerdown = (e) => {
+                e.stopPropagation();
+                handle.setPointerCapture(e.pointerId);
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const startVal = parseInt(handle.dataset.value);
+
+                const moveHandler = (me) => {
+                    const dx = me.clientX - startX;
+                    const dy = me.clientY - startY;
+                    let delta = 0;
+                    if (c === 'tl') delta = (dx + dy) / 2;
+                    else if (c === 'tr') delta = (-dx + dy) / 2;
+                    else if (c === 'bl') delta = (dx - dy) / 2;
+                    else if (c === 'br') delta = (-dx - dy) / 2;
+
+                    let newVal = Math.max(0, Math.round(startVal + delta));
+
+                    if (isLinked) {
+                        corners.forEach(corner => {
+                            handles[corner].dataset.value = newVal;
+                        });
+                    } else {
+                        handle.dataset.value = newVal;
+                    }
+                    updateRadius();
+                };
+
+                const upHandler = () => {
+                    handle.releasePointerCapture(e.pointerId);
+                    handle.removeEventListener('pointermove', moveHandler);
+                    handle.removeEventListener('pointerup', upHandler);
+                    this.applyStyle('borderRadius', icon.style.borderRadius);
+                    this.updateCode();
+                };
+
+                handle.addEventListener('pointermove', moveHandler);
+                handle.addEventListener('pointerup', upHandler);
+            };
+            icon.appendChild(handle);
+        });
+
+        container.appendChild(icon);
+        updateRadius();
+        return container;
+    },
+
+    createGradientSlider: function(el) {
+        const container = document.createElement('div');
+        container.className = 'gradient-slider-container';
+
+        const track = document.createElement('div');
+        track.className = 'gradient-track';
+
+        let stops = [
+            { pos: 0, color: '#000000' },
+            { pos: 100, color: '#ffffff' }
+        ];
+
+        // Try to parse existing
+        const currentBg = this.getStyle('backgroundImage');
+        if (currentBg && currentBg.includes('linear-gradient')) {
+             // Extract all color stops using regex that handles rgba, hex, and named colors
+             const stopRegex = /(?:rgba?\(.*?\)|#[a-fA-F0-9]{3,8}|[a-z]+)\s*(?:\d+%)?/gi;
+             const matches = currentBg.match(stopRegex);
+             if (matches && matches.length > 1) {
+                 stops = matches.map((match, i) => {
+                     const parts = match.trim().split(/\s+(?=\d+%)/);
+                     const color = parts[0];
+                     let pos = parts[1] ? parseInt(parts[1]) : (i === 0 ? 0 : (i === matches.length - 1 ? 100 : Math.round(i * (100 / (matches.length - 1)))));
+                     return { color, pos };
+                 });
+             }
+        }
+
+        const updateGradient = () => {
+            stops.sort((a, b) => a.pos - b.pos);
+            const gradientStr = `linear-gradient(to right, ${stops.map(s => `${s.color} ${s.pos}%`).join(', ')})`;
+            track.style.background = gradientStr;
+            el.style.backgroundImage = gradientStr;
+        };
+
+        const renderStops = () => {
+            Array.from(track.querySelectorAll('.gradient-stop')).forEach(s => s.remove());
+            stops.forEach((stop, index) => {
+                const stopEl = document.createElement('div');
+                stopEl.className = 'gradient-stop';
+                stopEl.style.left = stop.pos + '%';
+                stopEl.style.backgroundColor = stop.color;
+
+                stopEl.onpointerdown = (e) => {
+                    e.stopPropagation();
+                    stopEl.setPointerCapture(e.pointerId);
+                    const moveHandler = (me) => {
+                        const rect = track.getBoundingClientRect();
+                        let pos = Math.round(((me.clientX - rect.left) / rect.width) * 100);
+                        stop.pos = Math.max(0, Math.min(100, pos));
+                        stopEl.style.left = stop.pos + '%';
+                        updateGradient();
+                    };
+                    const upHandler = () => {
+                        stopEl.releasePointerCapture(e.pointerId);
+                        stopEl.removeEventListener('pointermove', moveHandler);
+                        stopEl.removeEventListener('pointerup', upHandler);
+                        this.applyStyle('backgroundImage', track.style.background);
+                        this.updateCode();
+                    };
+                    stopEl.addEventListener('pointermove', moveHandler);
+                    stopEl.addEventListener('pointerup', upHandler);
+                };
+
+                let lastTap = 0;
+                stopEl.addEventListener('pointerdown', (e) => {
+                    const now = Date.now();
+                    if (now - lastTap < 300) {
+                        // Double tap / double click
+                        const color = prompt('Enter color:', stop.color);
+                        if (color) {
+                            stop.color = color;
+                            stopEl.style.backgroundColor = color;
+                            updateGradient();
+                            this.applyStyle('backgroundImage', track.style.background);
+                            this.updateCode();
+                        }
+                    }
+                    lastTap = now;
+                });
+
+                track.appendChild(stopEl);
+            });
+        };
+
+        track.onpointerdown = (e) => {
+            if (e.target !== track) return;
+            const rect = track.getBoundingClientRect();
+            const pos = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+            stops.push({ pos: pos, color: '#888888' });
+            renderStops();
+            updateGradient();
+            this.applyStyle('backgroundImage', track.style.background);
+            this.updateCode();
+        };
+
+        container.appendChild(track);
+        renderStops();
+        updateGradient();
+        return container;
+    },
+
+    createShadowJoystick: function(el) {
+        const container = document.createElement('div');
+        container.className = 'joystick-container';
+
+        const box = document.createElement('div');
+        box.className = 'joystick-box';
+
+        const thumb = document.createElement('div');
+        thumb.className = 'joystick-thumb';
+        box.appendChild(thumb);
+
+        // Parse current shadow
+        const currentShadow = this.getStyle('boxShadow') || '0px 0px 5px 0px rgba(0,0,0,0.5)';
+        // Extract pixel values more robustly
+        const pxMatches = currentShadow.match(/(-?\d+)px/g);
+        let curX = 0, curY = 0, blur = '5px', spread = '0px';
+        if (pxMatches) {
+            curX = parseInt(pxMatches[0]) || 0;
+            curY = parseInt(pxMatches[1]) || 0;
+            blur = pxMatches[2] || '5px';
+            spread = pxMatches[3] || '0px';
+        }
+
+        // Extract color robustly (handles rgba, hex, names)
+        // Browsers often put color at the beginning or end.
+        // We extract color by removing all pixel measurements.
+        const color = currentShadow.replace(/-?\d+px/g, '').trim() || 'rgba(0,0,0,0.5)';
+
+        const updateThumb = (x, y) => {
+            // Range is -40 to 40, box is 80x80
+            const left = 40 + x;
+            const top = 40 + y;
+            thumb.style.left = Math.max(0, Math.min(80, left)) + 'px';
+            thumb.style.top = Math.max(0, Math.min(80, top)) + 'px';
+        };
+        updateThumb(curX, curY);
+
+        box.onpointerdown = (e) => {
+            box.setPointerCapture(e.pointerId);
+            const moveHandler = (me) => {
+                const rect = box.getBoundingClientRect();
+                let x = Math.round(me.clientX - rect.left - 40);
+                let y = Math.round(me.clientY - rect.top - 40);
+
+                x = Math.max(-40, Math.min(40, x));
+                y = Math.max(-40, Math.min(40, y));
+
+                updateThumb(x, y);
+
+                const newShadow = `${x}px ${y}px ${blur} ${spread} ${color}`;
+
+                // Live Logic: update CSS Variable for preview
+                el.style.setProperty('--shadow-x', x + 'px');
+                el.style.setProperty('--shadow-y', y + 'px');
+
+                // Apply directly for preview too
+                el.style.boxShadow = newShadow;
+            };
+
+            const upHandler = () => {
+                box.releasePointerCapture(e.pointerId);
+                box.removeEventListener('pointermove', moveHandler);
+                box.removeEventListener('pointerup', upHandler);
+
+                // Final Sync to Monaco
+                const rect = box.getBoundingClientRect();
+                const shadow = el.style.boxShadow;
+                this.applyStyle('boxShadow', shadow);
+                this.updateCode();
+            };
+
+            box.addEventListener('pointermove', moveHandler);
+            box.addEventListener('pointerup', upHandler);
+            moveHandler(e);
+        };
+
+        container.appendChild(box);
+        return container;
+    },
+
     createFlexBuilder: function(el) {
         const container = document.createElement('div');
         container.className = 'flex-builder';
@@ -4696,6 +4977,24 @@ if (${selector}) {
             return;
         }
 
+        // Auto-Detection: Determine best target if not explicitly set or when element changes
+        if (!this.lastSelectedElement || this.lastSelectedElement !== el) {
+            if (el.id) {
+                this.styleTarget = 'id';
+                this.styleTargetName = el.id;
+            } else {
+                const classes = Array.from(el.classList).filter(c => c !== 'dropped-element' && c !== 'selected');
+                if (classes.length > 0) {
+                    this.styleTarget = 'class';
+                    this.styleTargetName = classes[0];
+                } else {
+                    this.styleTarget = 'tag';
+                    this.styleTargetName = el.tagName.toLowerCase();
+                }
+            }
+            this.lastSelectedElement = el;
+        }
+
         this.highlightCodeForElement(el);
         this.renderStructureTree();
         this.renderBoxModel(el);
@@ -4704,62 +5003,56 @@ if (${selector}) {
         const header = document.createElement('div');
         header.className = 'selector-header';
 
-        // Row 1: Selector
-        const row1 = document.createElement('div');
-        row1.className = 'selector-row';
+        // Target Toggle Buttons: [ ID ], [ Class ], [ Tag ]
+        const targetToggleGroup = document.createElement('div');
+        targetToggleGroup.className = 'target-toggle-group';
 
-        const selLabel = document.createElement('span');
-        selLabel.innerText = 'Target:';
-        selLabel.style.width = '50px';
-        selLabel.style.color = '#aaa';
-        selLabel.style.fontSize = '11px';
-        selLabel.style.display = 'flex';
-        selLabel.style.alignItems = 'center';
-
-        const selSelect = document.createElement('select');
-        selSelect.className = 'selector-input';
-
-        const addOpt = (val, txt) => {
-            const o = document.createElement('option');
-            o.value = val;
-            o.innerText = txt;
-            if (this.styleTarget === val.split(':')[0] && this.styleTargetName === val.split(':')[1]) {
-                o.selected = true;
+        const createTargetBtn = (type, label, value) => {
+            const btn = document.createElement('button');
+            btn.className = 'target-btn' + (this.styleTarget === type ? ' active' : '');
+            btn.innerHTML = `<span>${label}</span>`;
+            if (value) {
+                const valSpan = document.createElement('span');
+                valSpan.className = 'btn-val';
+                valSpan.innerText = value;
+                btn.appendChild(valSpan);
             }
-            selSelect.appendChild(o);
+            btn.onclick = () => {
+                this.styleTarget = type;
+                this.styleTargetName = (value && value !== 'None') ? value.replace(/^\./, '') : '';
+                this.updatePropertyInspector(el);
+            };
+            return btn;
         };
 
-        addOpt('inline:', 'Inline Style');
-        if (el.id) addOpt(`id:${el.id}`, `#${el.id}`);
-        if (el.className) {
-            el.className.split(' ').forEach(c => {
-                if(c !== 'dropped-element' && c !== 'selected') {
-                     addOpt(`class:${c}`, `.${c}`);
-                }
-            });
+        // ID Button
+        const idBtn = createTargetBtn('id', 'ID', el.id || 'None');
+        idBtn.disabled = !el.id;
+        targetToggleGroup.appendChild(idBtn);
+
+        // Class Button
+        const classes = Array.from(el.classList).filter(c => c !== 'dropped-element' && c !== 'selected');
+        const classValue = classes.length > 0 ? '.' + (this.styleTarget === 'class' ? this.styleTargetName : classes[0]) : 'None';
+        const classBtn = createTargetBtn('class', 'Class', classValue);
+        classBtn.disabled = classes.length === 0;
+
+        if (classes.length > 1) {
+            classBtn.onclick = (e) => {
+                e.stopPropagation();
+                const currentIdx = classes.indexOf(this.styleTargetName);
+                const nextIdx = (currentIdx + 1) % classes.length;
+                this.styleTarget = 'class';
+                this.styleTargetName = classes[nextIdx];
+                this.updatePropertyInspector(el);
+            };
+            classBtn.title = "Click to cycle through classes";
         }
-        addOpt(`tag:${el.tagName.toLowerCase()}`, `<${el.tagName.toLowerCase()}>`);
+        targetToggleGroup.appendChild(classBtn);
 
-        // Add indexed selectors if they are not already present
-        if (this.projectIndex) {
-            this.projectIndex.ids.forEach(id => {
-                if (id !== el.id) addOpt(`id:${id}`, `#${id} (Project)`);
-            });
-            this.projectIndex.classes.forEach(cls => {
-                if (!el.classList.contains(cls)) addOpt(`class:${cls}`, `.${cls} (Project)`);
-            });
-        }
+        // Tag Button
+        targetToggleGroup.appendChild(createTargetBtn('tag', 'Tag', el.tagName.toLowerCase()));
 
-        selSelect.onchange = (e) => {
-            const parts = e.target.value.split(':');
-            this.styleTarget = parts[0];
-            this.styleTargetName = parts[1] || '';
-            this.updatePropertyInspector(el);
-        };
-
-        row1.appendChild(selLabel);
-        row1.appendChild(selSelect);
-        header.appendChild(row1);
+        header.appendChild(targetToggleGroup);
 
         // Row 2: Media Query
         const row2 = document.createElement('div');
@@ -5126,10 +5419,13 @@ if (${selector}) {
         // --- Appearance ---
         createGroup('Appearance', [
             createInput('Background Color', this.getStyle('backgroundColor'), (v) => this.applyStyle('backgroundColor', v), 'color'),
+            this.createGradientSlider(el),
             createInput('Opacity', this.getStyle('opacity'), (v) => this.applyStyle('opacity', v)),
             createInput('Border', this.getStyle('border'), (v) => this.applyStyle('border', v)),
             createInput('Border Radius', this.getStyle('borderRadius'), (v) => this.applyStyle('borderRadius', v)),
+            this.createCornerMapper(el),
             createInput('Box Shadow', this.getStyle('boxShadow'), (v) => this.applyStyle('boxShadow', v)),
+            this.createShadowJoystick(el),
             createInput('Cursor', this.getStyle('cursor'), (v) => this.applyStyle('cursor', v), 'select', ['default', 'pointer', 'text', 'move', 'not-allowed'])
         ]);
 
