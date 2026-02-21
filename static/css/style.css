@@ -1439,3 +1439,88 @@ body, html {
 .recent-item .name { font-weight: 600; color: var(--text-primary); }
 .recent-item .path { font-size: 11px; color: var(--text-secondary); }
 .recent-item .date { font-size: 11px; color: var(--text-secondary); }
+
+/* Touch Mode / Zoom Adjustments */
+body.touch-mode {
+    --text-primary: #f0f0f0;
+    --text-secondary: #cccccc;
+}
+
+body.touch-mode .structure-item {
+    font-size: 14px;
+    align-items: center;
+}
+
+body.touch-mode .tree-input {
+    height: 30px;
+    font-size: 14px !important;
+    padding: 5px;
+}
+
+body.touch-mode button,
+body.touch-mode .btn,
+body.touch-mode input[type='text'],
+body.touch-mode select {
+    min-height: 40px;
+    font-size: 14px !important;
+}
+
+body.touch-mode .control-header {
+    padding: 12px;
+}
+
+body.touch-mode .property-row {
+    margin-bottom: 15px;
+}
+
+body.touch-mode .sidebar-tabs button {
+    padding: 12px 15px;
+    font-size: 14px;
+}
+
+body.touch-mode .hub-btn {
+    padding: 20px;
+}
+
+/* Delete Button Styles */
+.delete-btn:hover {
+    color: #ff4444 !important;
+    background: rgba(255, 0, 0, 0.1) !important;
+    border-radius: 4px;
+}
+
+/* Tree Input Widths */
+.tree-input-id { width: 60px; }
+.tree-input-class { width: 80px; }
+.tree-input-content { flex: 1; min-width: 50px; }
+
+/* Enhanced Touch Mode Visibility for Tree Inputs */
+body.touch-mode .tree-input-id,
+body.touch-mode .tree-input-class,
+body.touch-mode .tree-input-content {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    margin-right: 4px;
+}
+
+body.touch-mode .tree-input-id {
+    width: 80px;
+    color: #9cdcfe !important; /* Ensure high contrast blue */
+    font-weight: bold;
+}
+
+body.touch-mode .tree-input-class {
+    width: 100px;
+    color: #ce9178 !important; /* Ensure high contrast orange */
+    font-weight: bold;
+}
+
+body.touch-mode .tree-input-content {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+body.touch-mode .tree-input:focus {
+    background-color: rgba(0, 0, 0, 0.3);
+    border-color: var(--text-accent);
+}

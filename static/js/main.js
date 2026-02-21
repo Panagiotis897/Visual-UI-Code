@@ -114,6 +114,7 @@ class BezierEditor {
 }
 
 const App = {
+    isTouchMode: false,
     history: [],
     historyIndex: -1,
     maxHistory: 20,
@@ -134,6 +135,12 @@ const App = {
 
         // Load saved project path
         this.currentProjectPath = localStorage.getItem('vuc_project_path');
+        
+        // Load Touch Mode
+        this.isTouchMode = localStorage.getItem('vuc_touch_mode') === 'true';
+        if (this.isTouchMode) {
+            document.body.classList.add('touch-mode');
+        }
         
         this.renderRecentProjects();
         this.initSavedBlocks();
@@ -2618,6 +2625,115 @@ if (${selector}) {
     },
 
     // --- Structure Tree (DOM View) ---
+    
+    toggleTouchMode: function() {
+        this.isTouchMode = !this.isTouchMode;
+        localStorage.setItem('vuc_touch_mode', this.isTouchMode);
+        
+        if (this.isTouchMode) {
+            document.body.classList.add('touch-mode');
+            this.logConsole('Touch Mode Enabled', 'success');
+        } else {
+            document.body.classList.remove('touch-mode');
+            this.logConsole('Touch Mode Disabled', 'info');
+        }
+        
+        this.renderStructureTree();
+    },
+
+    showSmartDeleteModal: function(element) {
+        if (!element) return;
+        
+        // Remove existing modal if any
+        const existing = document.getElementById('smart-delete-modal');
+        if (existing) existing.remove();
+        
+        const modal = document.createElement('div');
+        modal.id = 'smart-delete-modal';
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content" style="width: 400px;">
+                <h3>Delete Element</h3>
+                <p>How do you want to delete this &lt;${element.tagName.toLowerCase()}&gt;?</p>
+                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
+                    <button id="btn-unwrap" class="btn secondary" style="justify-content: flex-start; text-align: left;">
+                        <i class="fas fa-box-open" style="margin-right: 10px;"></i>
+                        <div>
+                            <strong>Unwrap (Keep Content)</strong>
+                            <div style="font-size: 11px; opacity: 0.7;">Delete container, keep children</div>
+                        </div>
+                    </button>
+                    <button id="btn-copy-delete" class="btn secondary" style="justify-content: flex-start; text-align: left;">
+                        <i class="fas fa-copy" style="margin-right: 10px;"></i>
+                        <div>
+                            <strong>Copy & Delete</strong>
+                            <div style="font-size: 11px; opacity: 0.7;">Copy HTML to clipboard, then delete</div>
+                        </div>
+                    </button>
+                    <button id="btn-delete-all" class="btn danger" style="justify-content: flex-start; text-align: left;">
+                        <i class="fas fa-trash-alt" style="margin-right: 10px;"></i>
+                        <div>
+                            <strong>Delete All</strong>
+                            <div style="font-size: 11px; opacity: 0.7;">Delete element and all content</div>
+                        </div>
+                    </button>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                    <button id="btn-cancel" class="btn text">Cancel</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Handlers
+        modal.querySelector('#btn-cancel').onclick = () => modal.remove();
+        
+        modal.querySelector('#btn-unwrap').onclick = () => {
+            const parent = element.parentNode;
+            while (element.firstChild) {
+                parent.insertBefore(element.firstChild, element);
+            }
+            element.remove();
+            this.updateCode();
+            this.saveState();
+            this.renderStructureTree();
+            modal.remove();
+        };
+        
+        modal.querySelector('#btn-copy-delete').onclick = () => {
+            const content = element.outerHTML;
+            navigator.clipboard.writeText(content).then(() => {
+                element.remove();
+                this.updateCode();
+                this.saveState();
+                this.renderStructureTree();
+                this.logConsole('Element copied and deleted', 'success');
+                modal.remove();
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                element.remove();
+                this.updateCode();
+                this.saveState();
+                this.renderStructureTree();
+                modal.remove();
+            });
+        };
+        
+        modal.querySelector('#btn-delete-all').onclick = () => {
+            element.remove();
+            this.updateCode();
+            this.saveState();
+            this.renderStructureTree();
+            modal.remove();
+        };
+        
+        // Close on outside click
+        modal.onclick = (e) => {
+            if (e.target === modal) modal.remove();
+        };
+    },
+
     renderStructureTree: function() {
         const container = document.getElementById('structure-tree');
         if (!container) return;
@@ -2675,8 +2791,9 @@ if (${selector}) {
             item.domElement = element; // For touch events
             item.className = 'structure-item';
             item.style.paddingLeft = (depth * 15 + 5) + 'px';
-            item.style.paddingTop = '6px'; // Increased for touch
-            item.style.paddingBottom = '6px'; // Increased for touch
+            const padding = this.isTouchMode ? '12px' : '6px';
+            item.style.paddingTop = padding;
+            item.style.paddingBottom = padding;
             item.style.cursor = 'pointer';
             item.style.display = 'flex';
             item.style.alignItems = 'center';
@@ -2696,7 +2813,7 @@ if (${selector}) {
             
             // Toggle / Icon Container
             const toggle = document.createElement('span');
-            toggle.style.width = '20px'; // Larger touch target
+            toggle.style.width = this.isTouchMode ? '30px' : '20px';
             toggle.style.display = 'inline-block';
             toggle.style.textAlign = 'center';
             toggle.style.cursor = 'pointer';
@@ -2765,8 +2882,8 @@ if (${selector}) {
             idInput.type = 'text';
             idInput.placeholder = '#id';
             idInput.value = element.id ? element.id : '';
-            idInput.className = 'tree-input';
-            idInput.style.width = '60px';
+            idInput.className = 'tree-input tree-input-id';
+            // Width handled by CSS now
             idInput.style.color = '#9cdcfe';
             idInput.onclick = (e) => e.stopPropagation();
             idInput.onchange = (e) => {
@@ -2781,8 +2898,8 @@ if (${selector}) {
             classInput.type = 'text';
             classInput.placeholder = '.class';
             classInput.value = element.className ? element.className.replace('selected', '').replace('dropped-element', '').trim() : '';
-            classInput.className = 'tree-input';
-            classInput.style.width = '80px';
+            classInput.className = 'tree-input tree-input-class';
+            // Width handled by CSS now
             classInput.style.color = '#ce9178';
             classInput.onclick = (e) => e.stopPropagation();
             classInput.onchange = (e) => {
@@ -2807,11 +2924,12 @@ if (${selector}) {
                  contentInput.type = 'text';
                  contentInput.placeholder = 'content';
                  contentInput.value = textContent;
-                 contentInput.className = 'tree-input';
+                 contentInput.className = 'tree-input tree-input-content';
                  contentInput.style.flex = '1';
                  contentInput.style.color = '#d4d4d4';
                  contentInput.style.minWidth = '50px';
                  contentInput.onclick = (e) => e.stopPropagation();
+
                  contentInput.onchange = (e) => {
                      let updated = false;
                      for (let node of element.childNodes) {
@@ -2829,6 +2947,28 @@ if (${selector}) {
             }
 
             item.appendChild(labelContainer);
+            
+            // Delete Button
+            const deleteBtn = document.createElement('button');
+            deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+            deleteBtn.className = 'tree-btn delete-btn';
+            deleteBtn.style.background = 'none';
+            deleteBtn.style.border = 'none';
+            deleteBtn.style.color = '#d4d4d4';
+            deleteBtn.style.cursor = 'pointer';
+            deleteBtn.style.marginLeft = '5px';
+            deleteBtn.style.padding = this.isTouchMode ? '8px' : '2px 5px';
+            deleteBtn.style.opacity = '0.5';
+            deleteBtn.title = 'Delete Element';
+            deleteBtn.onmouseover = () => deleteBtn.style.opacity = '1';
+            deleteBtn.onmouseout = () => deleteBtn.style.opacity = '0.5';
+            
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.showSmartDeleteModal(element);
+            };
+            
+            item.appendChild(deleteBtn);
             
             // Events
             item.onmouseover = (e) => {
