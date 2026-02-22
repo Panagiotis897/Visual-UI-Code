@@ -1682,6 +1682,40 @@ body.touch-mode .tree-input:focus {
     border-color: var(--text-accent);
 }
 
+/* --- SFC Targeting Drawer --- */
+.targeting-drawer {
+    background: var(--bg-root);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 10px;
+}
+
+.targeting-drawer .drawer-header {
+    padding: 10px 16px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-accent);
+    background: var(--bg-sidebar);
+}
+
+.targeting-drawer .drawer-content {
+    padding: 12px;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.targeting-drawer.open .drawer-content {
+    display: flex;
+}
+
+.targeting-drawer.open .drawer-header i {
+    transform: rotate(180deg);
+}
+
 /* --- Selector & Target Header Buttons --- */
 .target-toggle-group {
     display: flex;
@@ -1726,6 +1760,43 @@ body.touch-mode .tree-input:focus {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Segmented Control */
+.segmented-control {
+    display: flex;
+    background: var(--bg-input);
+    border-radius: 4px;
+    padding: 2px;
+    margin-bottom: 10px;
+}
+
+.segmented-control button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.2s;
+}
+
+.segmented-control button:hover {
+    color: var(--text-primary);
+}
+
+.segmented-control button.active {
+    background: var(--bg-selection);
+    color: white;
+}
+
+.alignment-widget {
+    background: var(--bg-sidebar);
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 10px;
 }
 
 /* --- Shadow Joystick Module --- */

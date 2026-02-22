@@ -124,9 +124,43 @@ const App = {
     currentFilePath: null,
     activeMediaQuery: '', // Current media query context for CSS edits
 
+    parseSFC: function(content) {
+        const styleRegex = /<style>([\s\S]*?)<\/style>/i;
+        const scriptRegex = /<script>([\s\S]*?)<\/script>/i;
+
+        const styleMatch = content.match(styleRegex);
+        const scriptMatch = content.match(scriptRegex);
+
+        const css = styleMatch ? styleMatch[1].trim() : '';
+        const js = scriptMatch ? scriptMatch[1].trim() : '';
+
+        // HTML is everything else
+        let html = content.replace(styleRegex, '').replace(scriptRegex, '').trim();
+
+        return { html, css, js };
+    },
+
+    serializeSFC: function() {
+        const html = Builder.getHTML();
+
+        let css = '';
+        const styleEl = document.getElementById('vuc-custom-styles');
+        if (styleEl) {
+            // Strip editor scoping
+            css = styleEl.textContent.replace(/#preview-canvas\s+/g, '').trim();
+        }
+
+        let js = '';
+        if (window.scriptEditor) {
+            js = window.scriptEditor.getValue().trim();
+        }
+
+        return `${html}\n\n<style>\n${css}\n</style>\n\n<script>\n${js}\n</script>`;
+    },
+
     init: function() {
         this.projectIndex = { classes: [], ids: [] };
-        this.styleTarget = 'inline';
+        this.styleTarget = 'id'; // Default to ID for components
         this.styleTargetName = '';
         this.lastSelectedElement = null;
         this.isDarkModeContext = false;
@@ -2294,21 +2328,22 @@ if (${selector}) {
 
         const code = `\nconst ${varName} = document.querySelector('${selector}')${cast};\n${varName}.addEventListener('${eventType}', (e) => {\n    \n});`;
 
-        document.querySelectorAll('.code-tabs button').forEach(t => { if(t.dataset.lang === 'js') t.click(); });
+        // Focus Script Editor in Bottom Panel
+        this.switchBottomPanel('script');
 
-        if (window.monacoEditor) {
-            const model = window.monacoEditor.getModel();
+        if (window.scriptEditor) {
+            const model = window.scriptEditor.getModel();
             const lineCount = model.getLineCount();
-            window.monacoEditor.executeEdits('event-preset', [{
+            window.scriptEditor.executeEdits('event-preset', [{
                 range: new monaco.Range(lineCount + 1, 1, lineCount + 1, 1),
                 text: code,
                 forceMoveMarkers: true
             }]);
 
             const targetLine = lineCount + 3;
-            window.monacoEditor.setPosition({ lineNumber: targetLine, column: 5 });
-            window.monacoEditor.revealLine(targetLine);
-            window.monacoEditor.focus();
+            window.scriptEditor.setPosition({ lineNumber: targetLine, column: 5 });
+            window.scriptEditor.revealLine(targetLine);
+            window.scriptEditor.focus();
         }
     },
 
@@ -2330,22 +2365,20 @@ if (${selector}) {
 
         const code = `const ${varName} = document.querySelector('${selector}')${cast};`;
 
-        // Switch to JS tab in editor
-        document.querySelectorAll('.code-tabs button').forEach(t => {
-            if(t.dataset.lang === 'js') t.click();
-        });
+        // Switch to Script Editor Panel
+        this.switchBottomPanel('script');
 
-        if (window.monacoEditor) {
-            const model = window.monacoEditor.getModel();
+        if (window.scriptEditor) {
+            const model = window.scriptEditor.getModel();
             const lineCount = model.getLineCount();
             const range = new monaco.Range(lineCount + 1, 1, lineCount + 1, 1);
-            window.monacoEditor.executeEdits('import', [{
+            window.scriptEditor.executeEdits('import', [{
                 range: range,
                 text: (lineCount > 1 ? '\n' : '') + code,
                 forceMoveMarkers: true
             }]);
-            window.monacoEditor.revealLine(lineCount + 1);
-            window.monacoEditor.focus();
+            window.scriptEditor.revealLine(lineCount + 1);
+            window.scriptEditor.focus();
         }
     },
 
@@ -2372,17 +2405,10 @@ if (${selector}) {
                 const valToApply = colorObj.variable ? `var(${colorObj.variable})` : color;
 
                 if (Builder.selectedElement) {
-                    // Check if we are in a specific input context?
-                    // For now just apply to background as default or try to be smart?
-                    // The old behavior was background.
-                    // But if the user is editing text color, they might want to apply it there.
-                    // Ideally we should drag and drop, but click is faster.
-
-                    // Let's ask or just apply to background for now as it's the most common.
-                    // Better: Copy to clipboard if not selected, apply if selected.
-
-                    App.applyStyle('backgroundColor', valToApply);
-                    App.logConsole(`Applied ${colorObj.name}`, 'success');
+                    const targetProp = this.activeColorProperty || 'backgroundColor';
+                    App.applyStyle(targetProp, valToApply);
+                    App.logConsole(`Applied ${colorObj.name} to ${targetProp}`, 'success');
+                    this.updatePropertyInspector(Builder.selectedElement);
                 } else {
                     navigator.clipboard.writeText(valToApply).then(() => {
                         App.logConsole(`Copied ${valToApply}`, 'success');
@@ -2649,14 +2675,19 @@ if (${selector}) {
                 suggest: {
                     filterGraceful: true,
                     snippetsPreventQuickSuggestions: false
-                }
+                },
+                wordBasedSuggestions: "currentDocument",
+                selectionHighlight: true,
+                occurrencesHighlight: true,
+                renderLineHighlight: "all"
             });
 
             // Script Editor
             const scriptContainer = document.getElementById('monaco-script-editor');
             if (scriptContainer) {
+                const defaultValue = '// Write JavaScript here...\n// It runs in the context of the app (use window or document)\n\nconsole.log("Hello from Script Editor");';
                 window.scriptEditor = monaco.editor.create(scriptContainer, {
-                    value: '// Write JavaScript here...\n// It runs in the context of the app (use window or document)\n\nconsole.log("Hello from Script Editor");',
+                    value: App.pendingJS || defaultValue,
                     language: 'javascript',
                     theme: 'vs-dark',
                     automaticLayout: true,
@@ -3154,6 +3185,18 @@ if (${selector}) {
                 this.showSmartDeleteModal(element);
             };
             drawer.appendChild(delBtn);
+
+            const scriptBtn = document.createElement('button');
+            scriptBtn.className = 'drawer-input';
+            scriptBtn.style.width = '30px';
+            scriptBtn.style.color = '#007acc';
+            scriptBtn.innerHTML = '<i class="fas fa-file-import"></i>';
+            scriptBtn.title = 'Import to Script';
+            scriptBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.importElementToJS(element);
+            };
+            drawer.appendChild(scriptBtn);
 
             item.appendChild(drawer);
 
@@ -3931,17 +3974,42 @@ if (${selector}) {
             // Determine type
             const ext = path.split('.').pop().toLowerCase();
 
-            if (ext === 'html') {
-                if (window.monacoEditor) {
-                    window.monacoEditor.setValue(data.content);
-                    // Sync to Visual Builder
-                    Builder.loadHTML(data.content);
-                    this.renderStructureTree();
+            if (ext === 'html' || ext === 'component') {
+                const sfc = this.parseSFC(data.content);
 
-                    // Switch to Structure Tree Tab
-                    this.switchSidebar('structure');
+                // Load HTML
+                Builder.loadHTML(sfc.html);
+                this.renderStructureTree();
+
+                // Load CSS
+                let styleTag = document.getElementById('vuc-custom-styles');
+                if (!styleTag) {
+                    styleTag = document.createElement('style');
+                    styleTag.id = 'vuc-custom-styles';
+                    document.head.appendChild(styleTag);
                 }
-                this.logConsole(`Opened ${path}`, 'success');
+                // Add editor scoping to selectors
+                const scopedCSS = sfc.css.replace(/([^\r\n,{}]+)(?=[^{]*\{)/g, (match) => {
+                    return match.trim().split(/\s*,\s*/).map(s => '#preview-canvas ' + s).join(', ');
+                });
+
+                styleTag.textContent = scopedCSS;
+                this.currentCSSContent = scopedCSS;
+
+                // Load JS
+                if (window.scriptEditor) {
+                    window.scriptEditor.setValue(sfc.js);
+                } else {
+                    this.pendingJS = sfc.js;
+                }
+
+                // Update Monaco (HTML tab)
+                if (window.monacoEditor) {
+                    this.updateCodeView('html');
+                }
+
+                this.switchSidebar('structure');
+                this.logConsole(`Opened component ${path}`, 'success');
             } else if (ext === 'css') {
                   this.currentCSSPath = path; // Track active CSS file
                   this.currentCSSContent = data.content; // Store content
@@ -5211,18 +5279,25 @@ if (${selector}) {
         const el = Builder.selectedElement;
         if (!el) return;
 
-        const target = this.styleTarget || 'inline';
-        const targetName = this.styleTargetName || '';
+        // Force CSS-based targeting for SFC, no inline styles
+        const target = (this.styleTarget === 'inline') ? 'id' : (this.styleTarget || 'id');
+        const targetName = this.styleTargetName || el.id || '';
 
-        if (target === 'inline') {
-            el.style[prop] = value;
-        } else {
-            // CSS Rule Logic
-            // Prefix with #preview-canvas to scope
-            let selector = '#preview-canvas ';
-            if (target === 'id') selector += '#' + targetName;
-            else if (target === 'class') selector += '.' + targetName;
-            else if (target === 'tag') selector += targetName;
+        if (!targetName && target !== 'global') {
+            // Fallback to ID if missing
+            if (!el.id) el.id = 'el-' + Math.random().toString(36).substr(2, 9);
+            this.styleTargetName = el.id;
+        }
+
+        // CSS Rule Logic
+        let baseSelector = '';
+        if (target === 'global') baseSelector = '*';
+        else if (target === 'id') baseSelector = '#' + (targetName || el.id);
+        else if (target === 'class') baseSelector = '.' + targetName;
+        else if (target === 'tag') baseSelector = el.tagName.toLowerCase();
+
+        // Scope to preview canvas during editing
+        const selector = '#preview-canvas ' + baseSelector;
 
             // Find or create style sheet
             let styleEl = document.getElementById('vuc-custom-styles');
@@ -5304,19 +5379,20 @@ if (${selector}) {
          const el = Builder.selectedElement;
          if (!el) return '';
 
-         const target = this.styleTarget || 'inline';
-         const targetName = this.styleTargetName || '';
+         const target = (this.styleTarget === 'inline') ? 'id' : (this.styleTarget || 'id');
+         const targetName = this.styleTargetName || el.id || '';
 
-         if (target === 'inline') {
-             return el.style[prop];
-         } else {
-             let styleEl = document.getElementById('vuc-custom-styles');
-             if (!styleEl) return '';
-             const sheet = styleEl.sheet;
-             let selector = '#preview-canvas ';
-             if (target === 'id') selector += '#' + targetName;
-             else if (target === 'class') selector += '.' + targetName;
-             else if (target === 'tag') selector += targetName;
+         let styleEl = document.getElementById('vuc-custom-styles');
+         if (!styleEl) return '';
+         const sheet = styleEl.sheet;
+
+         let baseSelector = '';
+         if (target === 'global') baseSelector = '*';
+         else if (target === 'id') baseSelector = '#' + targetName;
+         else if (target === 'class') baseSelector = '.' + targetName;
+         else if (target === 'tag') baseSelector = el.tagName.toLowerCase();
+
+         const selector = '#preview-canvas ' + baseSelector;
 
              let rulesList = sheet.cssRules;
 
@@ -5382,11 +5458,19 @@ if (${selector}) {
         this.renderStructureTree();
         this.renderBoxModel(el);
 
-        // --- Selector & Media Query Header ---
-        const header = document.createElement('div');
-        header.className = 'selector-header';
+        // --- SFC Targeting Drawer ---
+        const drawer = document.createElement('div');
+        drawer.className = 'targeting-drawer';
 
-        // Target Toggle Buttons: [ ID ], [ Class ], [ Tag ]
+        const drawerHeader = document.createElement('div');
+        drawerHeader.className = 'drawer-header';
+        drawerHeader.innerHTML = `<span>Targeting: [${this.styleTarget.toUpperCase()}] ${this.styleTargetName || ''}</span> <i class="fas fa-chevron-down"></i>`;
+        drawerHeader.onclick = () => drawer.classList.toggle('open');
+        drawer.appendChild(drawerHeader);
+
+        const drawerContent = document.createElement('div');
+        drawerContent.className = 'drawer-content';
+
         const targetToggleGroup = document.createElement('div');
         targetToggleGroup.className = 'target-toggle-group';
 
@@ -5394,7 +5478,7 @@ if (${selector}) {
             const btn = document.createElement('button');
             btn.className = 'target-btn' + (this.styleTarget === type ? ' active' : '');
             btn.innerHTML = `<span>${label}</span>`;
-            if (value) {
+            if (value && value !== 'None') {
                 const valSpan = document.createElement('span');
                 valSpan.className = 'btn-val';
                 valSpan.innerText = value;
@@ -5408,12 +5492,15 @@ if (${selector}) {
             return btn;
         };
 
-        // ID Button
+        // 1. Component Global
+        drawerContent.appendChild(createTargetBtn('global', 'Global', 'All Elements'));
+
+        // 2. Element ID
         const idBtn = createTargetBtn('id', 'ID', el.id || 'None');
         idBtn.disabled = !el.id;
-        targetToggleGroup.appendChild(idBtn);
+        drawerContent.appendChild(idBtn);
 
-        // Class Button
+        // 3. Class
         const classes = Array.from(el.classList).filter(c => c !== 'dropped-element' && c !== 'selected');
         const classValue = classes.length > 0 ? '.' + (this.styleTarget === 'class' ? this.styleTargetName : classes[0]) : 'None';
         const classBtn = createTargetBtn('class', 'Class', classValue);
@@ -5430,18 +5517,14 @@ if (${selector}) {
             };
             classBtn.title = "Click to cycle through classes";
         }
-        targetToggleGroup.appendChild(classBtn);
+        drawerContent.appendChild(classBtn);
 
-        // Tag Button
-        targetToggleGroup.appendChild(createTargetBtn('tag', 'Tag', el.tagName.toLowerCase()));
-
-        header.appendChild(targetToggleGroup);
-
-        // Row 2: Media Query & Dark Mode
+        // Row 2: Media Query & Dark Mode (Inside Drawer)
         const row2 = document.createElement('div');
         row2.className = 'selector-row';
         row2.style.alignItems = 'center';
         row2.style.justifyContent = 'space-between';
+        row2.style.marginTop = '10px';
 
         const mediaGroup = document.createElement('div');
         mediaGroup.style.display = 'flex';
@@ -5501,8 +5584,11 @@ if (${selector}) {
 
         dmGroup.appendChild(dmLabel);
         row2.appendChild(dmGroup);
+        drawerContent.appendChild(row2);
 
-        header.appendChild(row2);
+        drawer.appendChild(drawerContent);
+        container.appendChild(drawer);
+
         // Row 2.5: TS Mode Toggle
         const rowTS = document.createElement('div');
         rowTS.className = 'selector-row';
@@ -5515,7 +5601,7 @@ if (${selector}) {
         rowTS.querySelector('input').onchange = (e) => {
             this.isTSMode = e.target.checked;
         };
-        header.appendChild(rowTS);
+        drawerContent.appendChild(rowTS);
 
         // Row 3: Export Button
         const row3 = document.createElement('div');
@@ -5540,9 +5626,7 @@ if (${selector}) {
 
         row3.appendChild(importBtn);
         row3.appendChild(exportBtn);
-        header.appendChild(row3);
-
-        container.appendChild(header);
+        drawerContent.appendChild(row3);
 
         // --- Helper: Create Accordion Group ---
         const createGroup = (title, inputs, isOpen = false) => {
@@ -5756,6 +5840,16 @@ if (${selector}) {
 
             inp.onchange = (e) => { update(e); };
             inp.oninput = update;
+            inp.onfocus = () => {
+                const propMap = {
+                    'Background Color': 'backgroundColor',
+                    'Color': 'color',
+                    'Border Color': 'borderColor',
+                    'Text Color': 'color'
+                };
+                this.activeColorProperty = propMap[label] || 'backgroundColor';
+                App.logConsole('Active color target: ' + this.activeColorProperty, 'info');
+            };
 
             wrapper.appendChild(lbl);
             wrapper.appendChild(inp);
@@ -5809,78 +5903,137 @@ if (${selector}) {
         const displayVal = this.getStyle('display');
         const posVal = this.getStyle('position');
 
-        const layoutInputs = [
-            createInput('Display', displayVal, (v) => {
-                this.applyStyle('display', v);
+        const layoutInputs = [];
+
+        // 1. Display Type Toggle (Flex/Grid/Other)
+        const displayToggle = document.createElement('div');
+        displayToggle.className = 'segmented-control';
+        displayToggle.innerHTML = `
+            <button class="${displayVal === 'flex' ? 'active' : ''}" data-val="flex"><i class="fas fa-columns"></i> Flex</button>
+            <button class="${displayVal === 'grid' ? 'active' : ''}" data-val="grid"><i class="fas fa-th"></i> Grid</button>
+            <button class="${!['flex', 'grid'].includes(displayVal) ? 'active' : ''}" data-val="block">None</button>
+        `;
+        displayToggle.querySelectorAll('button').forEach(btn => {
+            btn.onclick = () => {
+                this.applyStyle('display', btn.dataset.val);
                 this.updatePropertyInspector(el);
-            }, 'segmented', [
-                { value: 'block', icon: '<i class="fas fa-square" style="font-size:1.2em"></i>' },
-                { value: 'flex', icon: '<i class="fas fa-columns" style="font-size:1.2em"></i>' },
-                { value: 'grid', icon: '<i class="fas fa-th" style="font-size:1.2em"></i>' },
-                { value: 'inline-block', icon: '<i class="far fa-square" style="font-size:1.2em"></i>' },
-                { value: 'none', icon: '<i class="fas fa-eye-slash" style="font-size:1.2em"></i>' }
-            ]),
-            createInput('Position', posVal, (v) => {
-                this.applyStyle('position', v);
-                this.updatePropertyInspector(el);
-            }, 'segmented', [
-                { value: 'static', icon: 'S' },
-                { value: 'relative', icon: 'R' },
-                { value: 'absolute', icon: 'A' },
-                { value: 'fixed', icon: 'F' },
-                { value: 'sticky', icon: 'K' }
-            ])
-        ];
+            };
+        });
+        layoutInputs.push(displayToggle);
+
+        // 2. Alignment Icons (if Flex or Grid)
+        if (displayVal === 'flex' || displayVal === 'grid') {
+            const alignGroup = document.createElement('div');
+            alignGroup.className = 'alignment-widget';
+
+            if (displayVal === 'flex') alignGroup.appendChild(this.createFlexBuilder(el));
+            else alignGroup.appendChild(this.createGridBuilder(el));
+
+            layoutInputs.push(alignGroup);
+        }
+
+        layoutInputs.push(createInput('Position', posVal, (v) => {
+            this.applyStyle('position', v);
+            this.updatePropertyInspector(el);
+        }, 'segmented', [
+            { value: 'static', icon: 'S' },
+            { value: 'relative', icon: 'R' },
+            { value: 'absolute', icon: 'A' },
+            { value: 'fixed', icon: 'F' },
+            { value: 'sticky', icon: 'K' }
+        ]));
 
         if (posVal !== 'static' && posVal !== '') {
             layoutInputs.push(createInput('Top', this.getStyle('top'), (v) => this.applyStyle('top', v), 'range', {min: -200, max: 200}));
             layoutInputs.push(createInput('Left', this.getStyle('left'), (v) => this.applyStyle('left', v), 'range', {min: -200, max: 200}));
-            layoutInputs.push(createInput('Right', this.getStyle('right'), (v) => this.applyStyle('right', v), 'range', {min: -200, max: 200}));
-            layoutInputs.push(createInput('Bottom', this.getStyle('bottom'), (v) => this.applyStyle('bottom', v), 'range', {min: -200, max: 200}));
         }
 
         layoutInputs.push(createInput('Width', this.getStyle('width'), (v) => this.applyStyle('width', v)));
         layoutInputs.push(createInput('Height', this.getStyle('height'), (v) => this.applyStyle('height', v)));
         layoutInputs.push(createInput('Margin', this.getStyle('margin'), (v) => this.applyStyle('margin', v)));
         layoutInputs.push(createInput('Padding', this.getStyle('padding'), (v) => this.applyStyle('padding', v)));
-        layoutInputs.push(createInput('Z-Index', this.getStyle('zIndex'), (v) => this.applyStyle('zIndex', v)));
-
-        if (displayVal === 'flex') {
-             const flexContainer = document.createElement('div');
-             flexContainer.appendChild(this.createFlexBuilder(el));
-             layoutInputs.push(flexContainer);
-        } else if (displayVal === 'grid') {
-             const gridContainer = document.createElement('div');
-             gridContainer.appendChild(this.createGridBuilder(el));
-             layoutInputs.push(gridContainer);
-        }
 
         createGroup('Layout', layoutInputs, true);
 
         // --- Typography ---
-        createGroup('Typography', [
-            createInput('Font Stack', '', null),
-            this.createFontStackSelector(el),
-            createInput('Font Size', this.getStyle('fontSize'), (v) => this.applyStyle('fontSize', v)),
-            createInput('Font Weight', this.getStyle('fontWeight'), (v) => this.applyStyle('fontWeight', v), 'select', ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900']),
-            createInput('Color', this.getStyle('color'), (v) => this.applyStyle('color', v), 'color'),
-            createInput('Text Align', this.getStyle('textAlign'), (v) => this.applyStyle('textAlign', v), 'select', ['left', 'center', 'right', 'justify']),
-            createInput('Line Height', this.getStyle('lineHeight'), (v) => this.applyStyle('lineHeight', v)),
-            createInput('Decoration', this.getStyle('textDecoration'), (v) => this.applyStyle('textDecoration', v), 'select', ['none', 'underline', 'overline', 'line-through']),
-            createInput('Text Shadow', '', null),
-            this.createTextShadowJoystick(el),
-            this.createTextEffectsGallery(el)
-        ]);
+        const decorationInputs = [];
+        decorationInputs.push(createInput('Font Size', this.getStyle('fontSize'), (v) => this.applyStyle('fontSize', v)));
+        decorationInputs.push(createInput('Color', this.getStyle('color'), (v) => this.applyStyle('color', v), 'color'));
+
+        const typoToggles = document.createElement('div');
+        typoToggles.className = 'segmented-control';
+        const curWeight = this.getStyle('fontWeight');
+        const curStyle = this.getStyle('fontStyle');
+        const curDecor = this.getStyle('textDecoration');
+
+        typoToggles.innerHTML = `
+            <button class="${curWeight === 'bold' ? 'active' : ''}" title="Bold"><i class="fas fa-bold"></i></button>
+            <button class="${curStyle === 'italic' ? 'active' : ''}" title="Italic"><i class="fas fa-italic"></i></button>
+            <button class="${curDecor.includes('underline') ? 'active' : ''}" title="Underline"><i class="fas fa-underline"></i></button>
+            <button class="${curDecor.includes('line-through') ? 'active' : ''}" title="Strikethrough"><i class="fas fa-strikethrough"></i></button>
+        `;
+        const typoBtns = typoToggles.querySelectorAll('button');
+        typoBtns[0].onclick = () => this.applyStyle('fontWeight', this.getStyle('fontWeight') === 'bold' ? 'normal' : 'bold');
+        typoBtns[1].onclick = () => this.applyStyle('fontStyle', this.getStyle('fontStyle') === 'italic' ? 'normal' : 'italic');
+        typoBtns[2].onclick = () => this.applyStyle('textDecoration', this.getStyle('textDecoration').includes('underline') ? 'none' : 'underline');
+        typoBtns[3].onclick = () => this.applyStyle('textDecoration', this.getStyle('textDecoration').includes('line-through') ? 'none' : 'line-through');
+
+        decorationInputs.push(typoToggles);
+        decorationInputs.push(createInput('Font Stack', '', null));
+        decorationInputs.push(this.createFontStackSelector(el));
+
+        createGroup('Typography', decorationInputs);
+
+        // --- Backgrounds ---
+        const bgType = el.dataset.bgType || 'solid';
+        const bgInputs = [];
+
+        const bgTypeToggle = document.createElement('div');
+        bgTypeToggle.className = 'segmented-control';
+        bgTypeToggle.innerHTML = `
+            <button class="${bgType === 'solid' ? 'active' : ''}" data-val="solid">Solid</button>
+            <button class="${bgType === 'gradient' ? 'active' : ''}" data-val="gradient">Gradient</button>
+            <button class="${bgType === 'image' ? 'active' : ''}" data-val="image">Image</button>
+        `;
+        bgTypeToggle.querySelectorAll('button').forEach(btn => {
+            btn.onclick = () => {
+                el.dataset.bgType = btn.dataset.val;
+                this.updatePropertyInspector(el);
+            };
+        });
+        bgInputs.push(bgTypeToggle);
+
+        if (bgType === 'solid') {
+            bgInputs.push(createInput('Color', this.getStyle('backgroundColor'), (v) => this.applyStyle('backgroundColor', v), 'color'));
+        } else if (bgType === 'gradient') {
+            const gradRow = document.createElement('div');
+            gradRow.innerHTML = `<label style="display:flex; align-items:center; gap:5px; margin-bottom:10px; cursor:pointer;">
+                <input type="checkbox" id="grad-on" ${this.getStyle('backgroundImage').includes('gradient') ? 'checked' : ''}> Enable Gradient
+            </label>`;
+            gradRow.querySelector('input').onchange = (e) => {
+                if (!e.target.checked) this.applyStyle('backgroundImage', 'none');
+                else this.updatePropertyInspector(el);
+            };
+            bgInputs.push(gradRow);
+            bgInputs.push(this.createGradientSlider(el));
+        } else {
+            bgInputs.push(createInput('Image URL', this.getStyle('backgroundImage'), (v) => this.applyStyle('backgroundImage', `url(${v})`)));
+        }
+        createGroup('Backgrounds', bgInputs, true);
 
         // --- Appearance ---
         createGroup('Appearance', [
-            createInput('Background Color', this.getStyle('backgroundColor'), (v) => this.applyStyle('backgroundColor', v), 'color'),
-            this.createGradientSlider(el),
-            createInput('Opacity', this.getStyle('opacity'), (v) => this.applyStyle('opacity', v)),
-            createInput('Border', this.getStyle('border'), (v) => this.applyStyle('border', v)),
+            createInput('Opacity', this.getStyle('opacity'), (v) => this.applyStyle('opacity', v), 'range', {min: 0, max: 1, step: 0.1}),
+            createInput('Border Width', this.getStyle('borderWidth'), (v) => this.applyStyle('borderWidth', v)),
+            createInput('Border Style', this.getStyle('borderStyle'), (v) => this.applyStyle('borderStyle', v), 'segmented', [
+                { value: 'none', icon: '<i class="fas fa-times"></i>' },
+                { value: 'solid', icon: '<i class="fas fa-minus"></i>' },
+                { value: 'dashed', icon: '<i class="fas fa-ellipsis-h"></i>' },
+                { value: 'dotted', icon: '<i class="fas fa-ellipsis-v"></i>' }
+            ]),
             createInput('Border Radius', this.getStyle('borderRadius'), (v) => this.applyStyle('borderRadius', v)),
             this.createCornerMapper(el),
-            createInput('Box Shadow', this.getStyle('boxShadow'), (v) => this.applyStyle('boxShadow', v)),
+            createInput('Shadow', '', null),
             this.createShadowJoystick(el),
             createInput('Cursor', this.getStyle('cursor'), (v) => this.applyStyle('cursor', v), 'select', ['default', 'pointer', 'text', 'move', 'not-allowed'])
         ]);
@@ -6118,28 +6271,14 @@ if (${selector}) {
         monaco.editor.setModelLanguage(model, lang === 'js' ? 'javascript' : lang);
 
         if (lang === 'html') {
-            let html = Builder.getHTML();
-            let fullHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>My Project</title>
-<style>body { font-family: sans-serif; }</style>
-</head>
-<body>
-${html}
-</body>
-</html>`;
+            let fullSFC = this.serializeSFC();
 
             // Set flag to prevent loop
             this.isUpdatingCode = true;
             try {
-                const formatted = this.formatHTML(fullHtml);
                 const currentVal = window.monacoEditor.getValue();
-
-                // Only update if changed to avoid cursor jumping if possible (though setValue resets cursor usually)
-                if (formatted !== currentVal) {
-                    window.monacoEditor.setValue(formatted);
+                if (fullSFC !== currentVal) {
+                    window.monacoEditor.setValue(fullSFC);
                     this.showSyncFeedback();
                 }
             } finally {
@@ -6147,11 +6286,9 @@ ${html}
             }
 
         } else if (lang === 'css') {
-             if (this.currentCSSContent) {
-                 window.monacoEditor.setValue(this.currentCSSContent);
-             } else {
-                  window.monacoEditor.setValue("/* Open a CSS file to edit styles. */");
-             }
+             const styleEl = document.getElementById('vuc-custom-styles');
+             const css = styleEl ? styleEl.textContent : '';
+             window.monacoEditor.setValue(css);
          } else if (lang === 'js') {
             const scriptEl = Builder.canvas.querySelector('#custom-global-js');
             const val = scriptEl ? scriptEl.innerText : "// Custom JavaScript\n// Code here will run globally";
@@ -6284,11 +6421,31 @@ ${html}
     },
 
     saveProject: async function() {
+        let path = this.currentFilePath;
+        if (!path && this.currentProjectPath) {
+            path = this.currentProjectPath + '/index.html';
+        }
+
+        if (path && (path.endsWith('.html') || path.endsWith('.component'))) {
+            const content = this.serializeSFC();
+            fetch('/api/save_file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: path, content: content })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) alert(data.error);
+                else this.logConsole('Saved component to ' + path, 'success');
+            });
+            return;
+        }
+
+        // Fallback for non-SFC files (like standalone CSS)
         const activeBtn = document.querySelector('.code-tabs button.active');
         const activeTab = activeBtn ? activeBtn.dataset.lang : 'html';
 
         if (activeTab === 'css' && this.currentCSSPath) {
-             // Save CSS
              const content = window.monacoEditor ? window.monacoEditor.getValue() : this.currentCSSContent;
              fetch('/api/save_file', {
                  method: 'POST',
@@ -6301,13 +6458,6 @@ ${html}
                  else this.logConsole('Saved ' + this.currentCSSPath, 'success');
              });
              return;
-        }
-
-        // Save HTML (Project)
-        let path = this.currentFilePath;
-        // If current file is not HTML (e.g. it's CSS), try to find the main HTML file
-        if (!path || !path.toLowerCase().endsWith('.html')) {
-            path = this.currentProjectPath ? (this.currentProjectPath + '/index.html') : null;
         }
 
         if (path) {
