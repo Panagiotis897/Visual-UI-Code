@@ -129,6 +129,7 @@ const App = {
         this.styleTarget = 'inline';
         this.styleTargetName = '';
         this.lastSelectedElement = null;
+        this.isDarkModeContext = false;
         // Load expanded paths
         try {
             const saved = JSON.parse(localStorage.getItem('vuc_expanded_paths'));
@@ -4416,8 +4417,16 @@ if (${selector}) {
                         corners.forEach(corner => {
                             handles[corner].dataset.value = newVal;
                         });
+                        el.style.setProperty('--radius-all', newVal + 'px');
+                        el.style.borderRadius = 'var(--radius-all)';
                     } else {
                         handle.dataset.value = newVal;
+                        el.style.setProperty(`--radius-${c}`, newVal + 'px');
+                        const tl = handles.tl.dataset.value + 'px';
+                        const tr = handles.tr.dataset.value + 'px';
+                        const br = handles.br.dataset.value + 'px';
+                        const bl = handles.bl.dataset.value + 'px';
+                        el.style.borderRadius = `var(--radius-tl, ${tl}) var(--radius-tr, ${tr}) var(--radius-br, ${br}) var(--radius-bl, ${bl})`;
                     }
                     updateRadius();
                 };
@@ -4426,6 +4435,8 @@ if (${selector}) {
                     handle.releasePointerCapture(e.pointerId);
                     handle.removeEventListener('pointermove', moveHandler);
                     handle.removeEventListener('pointerup', upHandler);
+
+                    ['--radius-all', '--radius-tl', '--radius-tr', '--radius-br', '--radius-bl'].forEach(p => el.style.removeProperty(p));
                     this.applyStyle('borderRadius', icon.style.borderRadius);
                     this.updateCode();
                 };
@@ -4445,6 +4456,27 @@ if (${selector}) {
         const container = document.createElement('div');
         container.className = 'gradient-slider-container';
 
+        const controls = document.createElement('div');
+        controls.style.display = 'flex';
+        controls.style.justifyContent = 'space-between';
+        controls.style.alignItems = 'center';
+        controls.style.marginBottom = '10px';
+
+        let isRadial = false;
+        const currentBg = this.getStyle('backgroundImage') || '';
+        if (currentBg.includes('radial-gradient')) isRadial = true;
+
+        const radialToggle = document.createElement('label');
+        radialToggle.style.fontSize = '11px';
+        radialToggle.style.cursor = 'pointer';
+        radialToggle.innerHTML = `<input type="checkbox" ${isRadial ? 'checked' : ''}> Radial Gradient`;
+        radialToggle.querySelector('input').onchange = (e) => {
+            isRadial = e.target.checked;
+            updateGradient();
+        };
+        controls.appendChild(radialToggle);
+        container.appendChild(controls);
+
         const track = document.createElement('div');
         track.className = 'gradient-track';
 
@@ -4454,9 +4486,7 @@ if (${selector}) {
         ];
 
         // Try to parse existing
-        const currentBg = this.getStyle('backgroundImage');
-        if (currentBg && currentBg.includes('linear-gradient')) {
-             // Extract all color stops using regex that handles rgba, hex, and named colors
+        if (currentBg.includes('gradient')) {
              const stopRegex = /(?:rgba?\(.*?\)|#[a-fA-F0-9]{3,8}|[a-z]+)\s*(?:\d+%)?/gi;
              const matches = currentBg.match(stopRegex);
              if (matches && matches.length > 1) {
@@ -4469,11 +4499,62 @@ if (${selector}) {
              }
         }
 
-        const updateGradient = () => {
+        const stopList = document.createElement('div');
+        stopList.className = 'gradient-stop-list';
+        stopList.style.marginTop = '10px';
+
+        const updateGradient = (useVars = false) => {
             stops.sort((a, b) => a.pos - b.pos);
-            const gradientStr = `linear-gradient(to right, ${stops.map(s => `${s.color} ${s.pos}%`).join(', ')})`;
-            track.style.background = gradientStr;
+            const type = isRadial ? 'radial-gradient(circle' : 'linear-gradient(to right';
+            const stopsStr = stops.map((s, i) => {
+                const pos = useVars ? `var(--grad-pos-${i}, ${s.pos}%)` : `${s.pos}%`;
+                return `${s.color} ${pos}`;
+            }).join(', ');
+            const gradientStr = `${type}, ${stopsStr})`;
+            track.style.background = `linear-gradient(to right, ${stops.map(s => `${s.color} ${s.pos}%`).join(', ')})`;
             el.style.backgroundImage = gradientStr;
+            renderStopInputs();
+            return gradientStr;
+        };
+
+        const renderStopInputs = () => {
+            stopList.innerHTML = '';
+            stops.forEach((stop, i) => {
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.gap = '5px';
+                row.style.marginBottom = '4px';
+                row.style.alignItems = 'center';
+
+                const colorInp = document.createElement('input');
+                colorInp.type = 'color';
+                colorInp.value = stop.color.startsWith('#') ? stop.color : '#000000';
+                colorInp.style.width = '20px';
+                colorInp.style.height = '20px';
+                colorInp.style.padding = '0';
+                colorInp.oninput = (e) => { stop.color = e.target.value; updateGradient(); };
+
+                const posInp = document.createElement('input');
+                posInp.type = 'range';
+                posInp.min = 0;
+                posInp.max = 100;
+                posInp.value = stop.pos;
+                posInp.style.flex = '1';
+                posInp.oninput = (e) => { stop.pos = parseInt(e.target.value); updateGradient(); renderStops(); };
+
+                const delBtn = document.createElement('button');
+                delBtn.innerHTML = '&times;';
+                delBtn.style.background = 'none';
+                delBtn.style.border = 'none';
+                delBtn.style.color = '#f44336';
+                delBtn.style.cursor = 'pointer';
+                delBtn.onclick = () => { if(stops.length > 2) { stops.splice(i, 1); updateGradient(); renderStops(); } };
+
+                row.appendChild(colorInp);
+                row.appendChild(posInp);
+                row.appendChild(delBtn);
+                stopList.appendChild(row);
+            });
         };
 
         const renderStops = () => {
@@ -4492,13 +4573,19 @@ if (${selector}) {
                         let pos = Math.round(((me.clientX - rect.left) / rect.width) * 100);
                         stop.pos = Math.max(0, Math.min(100, pos));
                         stopEl.style.left = stop.pos + '%';
-                        updateGradient();
+
+                        // CSS Variable optimization
+                        el.style.setProperty('--grad-pos-' + index, stop.pos + '%');
+                        updateGradient(true);
                     };
                     const upHandler = () => {
                         stopEl.releasePointerCapture(e.pointerId);
                         stopEl.removeEventListener('pointermove', moveHandler);
                         stopEl.removeEventListener('pointerup', upHandler);
-                        this.applyStyle('backgroundImage', track.style.background);
+
+                        stops.forEach((_, idx) => el.style.removeProperty('--grad-pos-' + idx));
+                        const finalGrad = updateGradient(false);
+                        this.applyStyle('backgroundImage', finalGrad);
                         this.updateCode();
                     };
                     stopEl.addEventListener('pointermove', moveHandler);
@@ -4538,6 +4625,7 @@ if (${selector}) {
         };
 
         container.appendChild(track);
+        container.appendChild(stopList);
         renderStops();
         updateGradient();
         return container;
@@ -4547,6 +4635,60 @@ if (${selector}) {
         const container = document.createElement('div');
         container.className = 'joystick-container';
 
+        // Parse current shadow
+        const currentShadow = this.getStyle('boxShadow') || '0px 0px 5px 0px rgba(0,0,0,0.5)';
+        const pxMatches = currentShadow.match(/(-?\d+)px/g) || [];
+        let curX = parseInt(pxMatches[0]) || 0;
+        let curY = parseInt(pxMatches[1]) || 0;
+        let blur = pxMatches[2] || '5px';
+        let spread = pxMatches[3] || '0px';
+        const colorPart = currentShadow.replace(/-?\d+px/g, '').trim() || 'rgba(0,0,0,0.5)';
+
+        const controls = document.createElement('div');
+        controls.style.width = '100%';
+        controls.style.marginBottom = '10px';
+
+        const colorRow = document.createElement('div');
+        colorRow.style.display = 'flex';
+        colorRow.style.gap = '10px';
+        colorRow.style.alignItems = 'center';
+
+        const colorPicker = document.createElement('input');
+        colorPicker.type = 'color';
+        colorPicker.value = '#000000'; // Simplified for now
+        colorPicker.style.width = '30px';
+        colorPicker.style.height = '30px';
+        colorPicker.style.padding = '0';
+        colorPicker.style.border = 'none';
+
+        const opacitySlider = document.createElement('input');
+        opacitySlider.type = 'range';
+        opacitySlider.min = 0;
+        opacitySlider.max = 1;
+        opacitySlider.step = 0.01;
+        opacitySlider.value = 0.5;
+        opacitySlider.style.flex = '1';
+
+        const updateShadow = () => {
+            const hex = colorPicker.value;
+            const r = parseInt(hex.slice(1,3), 16);
+            const g = parseInt(hex.slice(3,5), 16);
+            const b = parseInt(hex.slice(5,7), 16);
+            const a = opacitySlider.value;
+            const color = `rgba(${r},${g},${b},${a})`;
+            const newShadow = `${curX}px ${curY}px ${blur} ${spread} ${color}`;
+            el.style.boxShadow = newShadow;
+            return newShadow;
+        };
+
+        colorPicker.oninput = updateShadow;
+        opacitySlider.oninput = updateShadow;
+
+        colorRow.appendChild(colorPicker);
+        colorRow.appendChild(opacitySlider);
+        controls.appendChild(colorRow);
+        container.appendChild(controls);
+
         const box = document.createElement('div');
         box.className = 'joystick-box';
 
@@ -4554,25 +4696,7 @@ if (${selector}) {
         thumb.className = 'joystick-thumb';
         box.appendChild(thumb);
 
-        // Parse current shadow
-        const currentShadow = this.getStyle('boxShadow') || '0px 0px 5px 0px rgba(0,0,0,0.5)';
-        // Extract pixel values more robustly
-        const pxMatches = currentShadow.match(/(-?\d+)px/g);
-        let curX = 0, curY = 0, blur = '5px', spread = '0px';
-        if (pxMatches) {
-            curX = parseInt(pxMatches[0]) || 0;
-            curY = parseInt(pxMatches[1]) || 0;
-            blur = pxMatches[2] || '5px';
-            spread = pxMatches[3] || '0px';
-        }
-
-        // Extract color robustly (handles rgba, hex, names)
-        // Browsers often put color at the beginning or end.
-        // We extract color by removing all pixel measurements.
-        const color = currentShadow.replace(/-?\d+px/g, '').trim() || 'rgba(0,0,0,0.5)';
-
         const updateThumb = (x, y) => {
-            // Range is -40 to 40, box is 80x80
             const left = 40 + x;
             const top = 40 + y;
             thumb.style.left = Math.max(0, Math.min(80, left)) + 'px';
@@ -4584,22 +4708,20 @@ if (${selector}) {
             box.setPointerCapture(e.pointerId);
             const moveHandler = (me) => {
                 const rect = box.getBoundingClientRect();
-                let x = Math.round(me.clientX - rect.left - 40);
-                let y = Math.round(me.clientY - rect.top - 40);
+                curX = Math.max(-40, Math.min(40, Math.round(me.clientX - rect.left - 40)));
+                curY = Math.max(-40, Math.min(40, Math.round(me.clientY - rect.top - 40)));
+                updateThumb(curX, curY);
 
-                x = Math.max(-40, Math.min(40, x));
-                y = Math.max(-40, Math.min(40, y));
-
-                updateThumb(x, y);
-
-                const newShadow = `${x}px ${y}px ${blur} ${spread} ${color}`;
-
-                // Live Logic: update CSS Variable for preview
-                el.style.setProperty('--shadow-x', x + 'px');
-                el.style.setProperty('--shadow-y', y + 'px');
-
-                // Apply directly for preview too
-                el.style.boxShadow = newShadow;
+                // CSS Variable optimization
+                el.style.setProperty('--shadow-x', curX + 'px');
+                el.style.setProperty('--shadow-y', curY + 'px');
+                const hex = colorPicker.value;
+                const r = parseInt(hex.slice(1,3), 16);
+                const g = parseInt(hex.slice(3,5), 16);
+                const b = parseInt(hex.slice(5,7), 16);
+                const a = opacitySlider.value;
+                const color = `rgba(${r},${g},${b},${a})`;
+                el.style.boxShadow = `var(--shadow-x) var(--shadow-y) ${blur} ${spread} ${color}`;
             };
 
             const upHandler = () => {
@@ -4607,10 +4729,10 @@ if (${selector}) {
                 box.removeEventListener('pointermove', moveHandler);
                 box.removeEventListener('pointerup', upHandler);
 
-                // Final Sync to Monaco
-                const rect = box.getBoundingClientRect();
-                const shadow = el.style.boxShadow;
-                this.applyStyle('boxShadow', shadow);
+                el.style.removeProperty('--shadow-x');
+                el.style.removeProperty('--shadow-y');
+                const finalShadow = updateShadow();
+                this.applyStyle('boxShadow', finalShadow);
                 this.updateCode();
             };
 
@@ -4620,6 +4742,253 @@ if (${selector}) {
         };
 
         container.appendChild(box);
+        return container;
+    },
+
+    createGridBuilder: function(el) {
+        const container = document.createElement('div');
+        container.className = 'flex-builder'; // Reuse styling
+
+        const createControl = (label, prop, options) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex-control';
+            const lbl = document.createElement('label');
+            lbl.innerText = label;
+            wrapper.appendChild(lbl);
+            const btnGroup = document.createElement('div');
+            btnGroup.className = 'flex-options';
+            const currentVal = this.getStyle(prop);
+            options.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = 'flex-btn' + (currentVal === opt.value ? ' active' : '');
+                btn.title = opt.value;
+                btn.innerHTML = opt.icon;
+                btn.onclick = () => {
+                    this.applyStyle(prop, opt.value);
+                    Array.from(btnGroup.children).forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                };
+                btnGroup.appendChild(btn);
+            });
+            wrapper.appendChild(btnGroup);
+            return wrapper;
+        };
+
+        container.appendChild(createControl('Grid Flow', 'gridAutoFlow', [
+            { value: 'row', icon: '<i class="fas fa-arrows-alt-h"></i>' },
+            { value: 'column', icon: '<i class="fas fa-arrows-alt-v"></i>' },
+            { value: 'dense', icon: '<i class="fas fa-compress-arrows-alt"></i>' }
+        ]));
+
+        container.appendChild(createControl('Justify Items', 'justifyItems', [
+            { value: 'start', icon: '<i class="fas fa-align-left"></i>' },
+            { value: 'center', icon: '<i class="fas fa-align-center"></i>' },
+            { value: 'end', icon: '<i class="fas fa-align-right"></i>' },
+            { value: 'stretch', icon: '<i class="fas fa-expand-alt"></i>' }
+        ]));
+
+        container.appendChild(createControl('Align Items', 'alignItems', [
+            { value: 'start', icon: '<i class="fas fa-arrow-up"></i>' },
+            { value: 'center', icon: '<i class="fas fa-align-center" style="transform:rotate(90deg)"></i>' },
+            { value: 'end', icon: '<i class="fas fa-arrow-down"></i>' },
+            { value: 'stretch', icon: '<i class="fas fa-expand-alt"></i>' }
+        ]));
+
+        return container;
+    },
+
+    createFontStackSelector: function(el) {
+        const container = document.createElement('div');
+        const fonts = ['Inter', 'system-ui', 'sans-serif', 'serif', 'monospace', 'Roboto', 'Open Sans', 'Lato'];
+        const currentFont = this.getStyle('fontFamily') || '';
+        const selectedFonts = currentFont.split(',').map(f => f.trim().replace(/['"]/g, '')).filter(f => f);
+
+        const list = document.createElement('div');
+        list.style.display = 'flex';
+        list.style.flexWrap = 'wrap';
+        list.style.gap = '4px';
+
+        fonts.forEach(f => {
+            const btn = document.createElement('button');
+            btn.className = 'flex-btn' + (selectedFonts.includes(f) ? ' active' : '');
+            btn.innerText = f;
+            btn.style.fontSize = '10px';
+            btn.style.fontFamily = f;
+            btn.onclick = () => {
+                const idx = selectedFonts.indexOf(f);
+                if (idx > -1) selectedFonts.splice(idx, 1);
+                else selectedFonts.push(f);
+                btn.classList.toggle('active');
+                this.applyStyle('fontFamily', selectedFonts.map(sf => sf.includes(' ') ? `'${sf}'` : sf).join(', '));
+            };
+            list.appendChild(btn);
+        });
+        container.appendChild(list);
+        return container;
+    },
+
+    createTextShadowJoystick: function(el) {
+        const container = document.createElement('div');
+        container.className = 'joystick-container';
+        const currentShadow = this.getStyle('textShadow') || '0px 0px 2px rgba(0,0,0,0.5)';
+        const pxMatches = currentShadow.match(/(-?\d+)px/g) || [];
+        let curX = parseInt(pxMatches[0]) || 0;
+        let curY = parseInt(pxMatches[1]) || 0;
+        let blur = pxMatches[2] || '2px';
+        const color = currentShadow.replace(/-?\d+px/g, '').trim() || 'rgba(0,0,0,0.5)';
+
+        const box = document.createElement('div');
+        box.className = 'joystick-box';
+        box.style.width = '60px'; box.style.height = '60px';
+        const thumb = document.createElement('div');
+        thumb.className = 'joystick-thumb';
+        box.appendChild(thumb);
+
+        const updateThumb = (x, y) => {
+            thumb.style.left = (30 + x) + 'px';
+            thumb.style.top = (30 + y) + 'px';
+        };
+        updateThumb(curX, curY);
+
+        box.onpointerdown = (e) => {
+            box.setPointerCapture(e.pointerId);
+            const moveHandler = (me) => {
+                const rect = box.getBoundingClientRect();
+                curX = Math.max(-30, Math.min(30, Math.round(me.clientX - rect.left - 30)));
+                curY = Math.max(-30, Math.min(30, Math.round(me.clientY - rect.top - 30)));
+                updateThumb(curX, curY);
+
+                // CSS Variable optimization
+                el.style.setProperty('--ts-x', curX + 'px');
+                el.style.setProperty('--ts-y', curY + 'px');
+                el.style.textShadow = `var(--ts-x) var(--ts-y) ${blur} ${color}`;
+            };
+            const upHandler = () => {
+                box.releasePointerCapture(e.pointerId);
+                box.removeEventListener('pointermove', moveHandler);
+                box.removeEventListener('pointerup', upHandler);
+
+                el.style.removeProperty('--ts-x');
+                el.style.removeProperty('--ts-y');
+                this.applyStyle('textShadow', `${curX}px ${curY}px ${blur} ${color}`);
+                this.updateCode();
+            };
+            box.addEventListener('pointermove', moveHandler);
+            box.addEventListener('pointerup', upHandler);
+            moveHandler(e);
+        };
+        container.appendChild(box);
+        return container;
+    },
+
+    createTextEffectsGallery: function(el) {
+        const container = document.createElement('div');
+        container.style.display = 'grid';
+        container.style.gridTemplateColumns = '1fr 1fr 1fr';
+        container.style.gap = '5px';
+        const effects = [
+            { name: 'Neon', css: '0 0 5px #fff, 0 0 10px #fff, 0 0 20px #ff00de' },
+            { name: 'Emboss', css: '1px 1px 1px #fff, -1px -1px 1px #000' },
+            { name: 'Outline', css: '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000' }
+        ];
+        effects.forEach(eff => {
+            const btn = document.createElement('button');
+            btn.className = 'flex-btn';
+            btn.innerText = eff.name;
+            btn.style.fontSize = '10px';
+            btn.onclick = () => this.applyStyle('textShadow', eff.css);
+            container.appendChild(btn);
+        });
+        return container;
+    },
+
+    createTransform3D: function(el) {
+        const container = document.createElement('div');
+        container.className = 'transform-3d-builder';
+
+        const axisWidget = document.createElement('div');
+        axisWidget.style.width = '100px';
+        axisWidget.style.height = '100px';
+        axisWidget.style.margin = '0 auto 15px';
+        axisWidget.style.background = 'var(--bg-root)';
+        axisWidget.style.borderRadius = '50%';
+        axisWidget.style.display = 'flex';
+        axisWidget.style.alignItems = 'center';
+        axisWidget.style.justifyContent = 'center';
+        axisWidget.innerHTML = `
+            <svg viewBox="0 0 100 100" style="width:80%; height:80%">
+                <line x1="50" y1="50" x2="90" y2="50" stroke="#f44336" stroke-width="3" />
+                <line x1="50" y1="50" x2="50" y2="10" stroke="#4caf50" stroke-width="3" />
+                <line x1="50" y1="50" x2="20" y2="80" stroke="#2196f3" stroke-width="3" />
+                <circle cx="50" cy="50" r="4" fill="white" />
+            </svg>
+        `;
+        container.appendChild(axisWidget);
+
+        const currentTransform = this.getStyle('transform') || '';
+        const getVal = (reg, def) => { const m = currentTransform.match(reg); return m ? parseFloat(m[1]) : def; };
+        const state = {
+            rotX: getVal(/rotateX\(([\d.-]+)deg\)/, 0),
+            rotY: getVal(/rotateY\(([\d.-]+)deg\)/, 0),
+            rotZ: getVal(/rotateZ\(([\d.-]+)deg\)/, 0),
+            scale: getVal(/scale\(([\d.-]+)\)/, 1),
+            skewX: getVal(/skewX\(([\d.-]+)deg\)/, 0),
+            skewY: getVal(/skewY\(([\d.-]+)deg\)/, 0)
+        };
+
+        const updateTransform = (useVars = false) => {
+            const str = useVars ?
+                `rotateX(var(--rot-x, ${state.rotX}deg)) rotateY(var(--rot-y, ${state.rotY}deg)) rotateZ(var(--rot-z, ${state.rotZ}deg)) scale(var(--scale, ${state.scale})) skewX(var(--skew-x, ${state.skewX}deg)) skewY(var(--skew-y, ${state.skewY}deg))` :
+                `rotateX(${state.rotX}deg) rotateY(${state.rotY}deg) rotateZ(${state.rotZ}deg) scale(${state.scale}) skewX(${state.skewX}deg) skewY(${state.skewY}deg)`;
+
+            if (useVars) {
+                el.style.setProperty('--rot-x', state.rotX + 'deg');
+                el.style.setProperty('--rot-y', state.rotY + 'deg');
+                el.style.setProperty('--rot-z', state.rotZ + 'deg');
+                el.style.setProperty('--scale', state.scale);
+                el.style.setProperty('--skew-x', state.skewX + 'deg');
+                el.style.setProperty('--skew-y', state.skewY + 'deg');
+                el.style.transform = str;
+            } else {
+                this.applyStyle('transform', str);
+            }
+        };
+
+        const createSlider = (label, key, min, max, step=1) => {
+            const row = document.createElement('div');
+            row.style.marginBottom = '8px';
+            const lblRow = document.createElement('div');
+            lblRow.style.display = 'flex';
+            lblRow.style.justifyContent = 'space-between';
+            lblRow.innerHTML = `<label style="font-size:10px; color:#aaa;">${label}</label><span style="font-size:10px; color:var(--text-accent);">${state[key]}</span>`;
+            const inp = document.createElement('input');
+            inp.type = 'range';
+            inp.min = min; inp.max = max; inp.step = step;
+            inp.value = state[key];
+            inp.style.width = '100%';
+            inp.oninput = (e) => {
+                state[key] = e.target.value;
+                lblRow.querySelector('span').innerText = state[key];
+                updateTransform(true);
+            };
+            inp.onchange = () => {
+                ['--rot-x', '--rot-y', '--rot-z', '--scale', '--skew-x', '--skew-y'].forEach(p => el.style.removeProperty(p));
+                updateTransform(false);
+                this.saveState();
+                this.updateCode();
+            };
+            row.appendChild(lblRow);
+            row.appendChild(inp);
+            return row;
+        };
+
+        container.appendChild(createSlider('Rotate X', 'rotX', -180, 180));
+        container.appendChild(createSlider('Rotate Y', 'rotY', -180, 180));
+        container.appendChild(createSlider('Rotate Z', 'rotZ', -180, 180));
+        container.appendChild(createSlider('Scale', 'scale', 0.1, 3, 0.1));
+        container.appendChild(createSlider('Skew X', 'skewX', -45, 45));
+        container.appendChild(createSlider('Skew Y', 'skewY', -45, 45));
+
         return container;
     },
 
@@ -4869,12 +5238,19 @@ if (${selector}) {
             let insertIndex = sheet.cssRules.length;
             let parentRule = sheet; // Default to sheet
 
+            // Determine final media query string
+            let mqParts = [];
+            if (this.activeMediaQuery) mqParts.push(this.activeMediaQuery.replace(/^@media\s+/, ''));
+            if (this.isDarkModeContext) mqParts.push('(prefers-color-scheme: dark)');
+
+            const finalMQ = mqParts.length > 0 ? mqParts.join(' and ') : '';
+
             // Handle Media Query
-            if (this.activeMediaQuery) {
+            if (finalMQ) {
                 let mediaRule = null;
                 for (let i = 0; i < sheet.cssRules.length; i++) {
                     if (sheet.cssRules[i].type === CSSRule.MEDIA_RULE &&
-                        sheet.cssRules[i].conditionText === this.activeMediaQuery) {
+                        sheet.cssRules[i].conditionText === finalMQ) {
                         mediaRule = sheet.cssRules[i];
                         break;
                     }
@@ -4882,10 +5258,10 @@ if (${selector}) {
 
                 if (!mediaRule) {
                     try {
-                        const idx = sheet.insertRule(`@media ${this.activeMediaQuery} {}`, sheet.cssRules.length);
+                        const idx = sheet.insertRule(`@media ${finalMQ} {}`, sheet.cssRules.length);
                         mediaRule = sheet.cssRules[idx];
                     } catch (e) {
-                        console.error("Invalid media query:", this.activeMediaQuery);
+                        console.error("Invalid media query:", finalMQ);
                         return;
                     }
                 }
@@ -4944,12 +5320,19 @@ if (${selector}) {
 
              let rulesList = sheet.cssRules;
 
+             // Determine final media query string
+             let mqParts = [];
+             if (this.activeMediaQuery) mqParts.push(this.activeMediaQuery.replace(/^@media\s+/, ''));
+             if (this.isDarkModeContext) mqParts.push('(prefers-color-scheme: dark)');
+
+             const finalMQ = mqParts.length > 0 ? mqParts.join(' and ') : '';
+
              // Handle Media Query
-             if (this.activeMediaQuery) {
+             if (finalMQ) {
                 let mediaRule = null;
                 for (let i = 0; i < sheet.cssRules.length; i++) {
                     if (sheet.cssRules[i].type === CSSRule.MEDIA_RULE &&
-                        sheet.cssRules[i].conditionText === this.activeMediaQuery) {
+                        sheet.cssRules[i].conditionText === finalMQ) {
                         mediaRule = sheet.cssRules[i];
                         break;
                     }
@@ -5054,27 +5437,33 @@ if (${selector}) {
 
         header.appendChild(targetToggleGroup);
 
-        // Row 2: Media Query
+        // Row 2: Media Query & Dark Mode
         const row2 = document.createElement('div');
         row2.className = 'selector-row';
+        row2.style.alignItems = 'center';
+        row2.style.justifyContent = 'space-between';
+
+        const mediaGroup = document.createElement('div');
+        mediaGroup.style.display = 'flex';
+        mediaGroup.style.alignItems = 'center';
+        mediaGroup.style.gap = '5px';
+        mediaGroup.style.flex = '1';
 
         const mediaLabel = document.createElement('span');
         mediaLabel.innerText = '@media:';
-        mediaLabel.style.width = '50px';
         mediaLabel.style.color = '#aaa';
         mediaLabel.style.fontSize = '11px';
-        mediaLabel.style.display = 'flex';
-        mediaLabel.style.alignItems = 'center';
 
         const mediaSelect = document.createElement('select');
         mediaSelect.className = 'selector-input';
+        mediaSelect.style.width = '100px';
 
         const mediaOptions = [
-            { val: '', txt: 'None (Global)' },
-            { val: '(max-width: 1200px)', txt: '< 1200px (Laptop)' },
-            { val: '(max-width: 992px)', txt: '< 992px (Tablet)' },
-            { val: '(max-width: 768px)', txt: '< 768px (Mobile)' },
-            { val: '(min-width: 1200px)', txt: '> 1200px (Desktop)' }
+            { val: '', txt: 'Global' },
+            { val: '(max-width: 1200px)', txt: '<1200px' },
+            { val: '(max-width: 992px)', txt: '<992px' },
+            { val: '(max-width: 768px)', txt: '<768px' },
+            { val: '(min-width: 1200px)', txt: '>1200px' }
         ];
 
         mediaOptions.forEach(opt => {
@@ -5090,8 +5479,29 @@ if (${selector}) {
             this.updatePropertyInspector(el);
         };
 
-        row2.appendChild(mediaLabel);
-        row2.appendChild(mediaSelect);
+        mediaGroup.appendChild(mediaLabel);
+        mediaGroup.appendChild(mediaSelect);
+        row2.appendChild(mediaGroup);
+
+        // Dark Mode Toggle
+        const dmGroup = document.createElement('div');
+        dmGroup.style.display = 'flex';
+        dmGroup.style.alignItems = 'center';
+        dmGroup.style.gap = '5px';
+
+        const dmLabel = document.createElement('label');
+        dmLabel.style.fontSize = '10px';
+        dmLabel.style.color = '#aaa';
+        dmLabel.style.cursor = 'pointer';
+        dmLabel.innerHTML = `<input type="checkbox" id="dm-toggle" ${this.isDarkModeContext ? 'checked' : ''}> DarkMode`;
+        dmLabel.querySelector('input').onchange = (e) => {
+            this.isDarkModeContext = e.target.checked;
+            this.updatePropertyInspector(el);
+        };
+
+        dmGroup.appendChild(dmLabel);
+        row2.appendChild(dmGroup);
+
         header.appendChild(row2);
         // Row 2.5: TS Mode Toggle
         const rowTS = document.createElement('div');
@@ -5173,7 +5583,37 @@ if (${selector}) {
             lbl.innerText = label;
 
             let inp;
-            if (type === 'segmented') {
+            if (type === 'range') {
+                const rangeWrap = document.createElement('div');
+                rangeWrap.style.display = 'flex';
+                rangeWrap.style.gap = '10px';
+                rangeWrap.style.alignItems = 'center';
+
+                inp = document.createElement('input');
+                inp.type = 'range';
+                inp.className = 'prop-slider';
+                inp.style.flex = '1';
+                inp.min = options.min !== undefined ? options.min : 0;
+                inp.max = options.max !== undefined ? options.max : 100;
+                inp.value = parseInt(value) || 0;
+
+                const valDisplay = document.createElement('span');
+                valDisplay.style.fontSize = '10px';
+                valDisplay.style.width = '40px';
+                valDisplay.innerText = value || '0px';
+
+                inp.oninput = (e) => {
+                    const newVal = e.target.value + 'px';
+                    valDisplay.innerText = newVal;
+                    onChange(newVal);
+                };
+
+                rangeWrap.appendChild(inp);
+                rangeWrap.appendChild(valDisplay);
+                wrapper.appendChild(lbl);
+                wrapper.appendChild(rangeWrap);
+                return wrapper;
+            } else if (type === 'segmented') {
                 const group = document.createElement('div');
                 group.className = 'flex-options';
                 options.forEach(opt => {
@@ -5273,7 +5713,8 @@ if (${selector}) {
             }
 
             // Numeric Scrubber Logic
-            const isNumeric = /^-?\d*\.?\d+(px|em|rem|%|vh|vw|s|ms)?$/.test(value);
+            const numericLabels = ['Width', 'Height', 'Margin', 'Padding', 'Z-Index', 'Font Size', 'Line Height', 'Top', 'Left', 'Right', 'Bottom', 'Opacity', 'Border Radius'];
+            const isNumeric = numericLabels.includes(label) || /^-?\d*\.?\d+(px|em|rem|%|vh|vw|s|ms)?$/.test(value);
             if (isNumeric) {
                 lbl.style.cursor = 'ew-resize';
                 lbl.title = 'Click and drag to scrub value';
@@ -5281,39 +5722,32 @@ if (${selector}) {
 
                 const handleStart = (e) => {
                     e.preventDefault();
-                    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-                    if (clientX === undefined) return;
-
-                    const startX = clientX;
+                    lbl.setPointerCapture(e.pointerId);
+                    const startX = e.clientX;
                     const startVal = parseFloat(inp.value) || 0;
-                    const unitMatch = inp.value.match(/[a-z%]+$/i);
+                    const unitMatch = (inp.value || '').match(/[a-z%]+$/i);
                     const unit = unitMatch ? unitMatch[0] : 'px';
 
                     const onMove = (moveEvent) => {
-                        const currentX = moveEvent.clientX || (moveEvent.touches && moveEvent.touches[0].clientX);
-                        if (currentX === undefined) return;
-                        const delta = currentX - startX;
+                        const delta = Math.round(moveEvent.clientX - startX);
                         const newVal = startVal + delta;
-                        inp.value = newVal + unit;
+                        inp.value = newVal + (label === 'Z-Index' || label === 'Opacity' ? '' : unit);
                         onChange(inp.value);
                     };
 
                     const onEnd = () => {
-                        document.removeEventListener('mousemove', onMove);
-                        document.removeEventListener('mouseup', onEnd);
-                        document.removeEventListener('touchmove', onMove);
-                        document.removeEventListener('touchend', onEnd);
+                        lbl.releasePointerCapture(e.pointerId);
+                        document.removeEventListener('pointermove', onMove);
+                        document.removeEventListener('pointerup', onEnd);
                         this.saveState();
+                        this.updateCode();
                     };
 
-                    document.addEventListener('mousemove', onMove);
-                    document.addEventListener('mouseup', onEnd);
-                    document.addEventListener('touchmove', onMove, { passive: false });
-                    document.addEventListener('touchend', onEnd);
+                    document.addEventListener('pointermove', onMove);
+                    document.addEventListener('pointerup', onEnd);
                 };
 
-                lbl.onmousedown = handleStart;
-                lbl.ontouchstart = handleStart;
+                lbl.onpointerdown = handleStart;
             }
 
             const update = (e) => {
@@ -5372,48 +5806,70 @@ if (${selector}) {
         createGroup('Attributes', identityInputs, true);
 
         // --- Layout ---
+        const displayVal = this.getStyle('display');
+        const posVal = this.getStyle('position');
+
         const layoutInputs = [
-            createInput('Display', this.getStyle('display'), (v) => {
+            createInput('Display', displayVal, (v) => {
                 this.applyStyle('display', v);
                 this.updatePropertyInspector(el);
             }, 'segmented', [
-                { value: 'block', icon: '<i class="fas fa-square"></i>' },
-                { value: 'flex', icon: '<i class="fas fa-columns"></i>' },
-                { value: 'grid', icon: '<i class="fas fa-th"></i>' },
-                { value: 'inline-block', icon: '<i class="fas fa-square" style="font-size:0.6em"></i>' },
-                { value: 'none', icon: '<i class="fas fa-eye-slash"></i>' }
+                { value: 'block', icon: '<i class="fas fa-square" style="font-size:1.2em"></i>' },
+                { value: 'flex', icon: '<i class="fas fa-columns" style="font-size:1.2em"></i>' },
+                { value: 'grid', icon: '<i class="fas fa-th" style="font-size:1.2em"></i>' },
+                { value: 'inline-block', icon: '<i class="far fa-square" style="font-size:1.2em"></i>' },
+                { value: 'none', icon: '<i class="fas fa-eye-slash" style="font-size:1.2em"></i>' }
             ]),
-            createInput('Position', this.getStyle('position'), (v) => this.applyStyle('position', v), 'segmented', [
+            createInput('Position', posVal, (v) => {
+                this.applyStyle('position', v);
+                this.updatePropertyInspector(el);
+            }, 'segmented', [
                 { value: 'static', icon: 'S' },
                 { value: 'relative', icon: 'R' },
                 { value: 'absolute', icon: 'A' },
                 { value: 'fixed', icon: 'F' },
                 { value: 'sticky', icon: 'K' }
-            ]),
-            createInput('Width', this.getStyle('width'), (v) => this.applyStyle('width', v)),
-            createInput('Height', this.getStyle('height'), (v) => this.applyStyle('height', v)),
-            createInput('Margin', this.getStyle('margin'), (v) => this.applyStyle('margin', v)),
-            createInput('Padding', this.getStyle('padding'), (v) => this.applyStyle('padding', v)),
-            createInput('Z-Index', this.getStyle('zIndex'), (v) => this.applyStyle('zIndex', v))
+            ])
         ];
 
-        if (this.getStyle('display') === 'flex') {
+        if (posVal !== 'static' && posVal !== '') {
+            layoutInputs.push(createInput('Top', this.getStyle('top'), (v) => this.applyStyle('top', v), 'range', {min: -200, max: 200}));
+            layoutInputs.push(createInput('Left', this.getStyle('left'), (v) => this.applyStyle('left', v), 'range', {min: -200, max: 200}));
+            layoutInputs.push(createInput('Right', this.getStyle('right'), (v) => this.applyStyle('right', v), 'range', {min: -200, max: 200}));
+            layoutInputs.push(createInput('Bottom', this.getStyle('bottom'), (v) => this.applyStyle('bottom', v), 'range', {min: -200, max: 200}));
+        }
+
+        layoutInputs.push(createInput('Width', this.getStyle('width'), (v) => this.applyStyle('width', v)));
+        layoutInputs.push(createInput('Height', this.getStyle('height'), (v) => this.applyStyle('height', v)));
+        layoutInputs.push(createInput('Margin', this.getStyle('margin'), (v) => this.applyStyle('margin', v)));
+        layoutInputs.push(createInput('Padding', this.getStyle('padding'), (v) => this.applyStyle('padding', v)));
+        layoutInputs.push(createInput('Z-Index', this.getStyle('zIndex'), (v) => this.applyStyle('zIndex', v)));
+
+        if (displayVal === 'flex') {
              const flexContainer = document.createElement('div');
              flexContainer.appendChild(this.createFlexBuilder(el));
              layoutInputs.push(flexContainer);
+        } else if (displayVal === 'grid') {
+             const gridContainer = document.createElement('div');
+             gridContainer.appendChild(this.createGridBuilder(el));
+             layoutInputs.push(gridContainer);
         }
 
         createGroup('Layout', layoutInputs, true);
 
         // --- Typography ---
         createGroup('Typography', [
-            createInput('Font Family', this.getStyle('fontFamily'), (v) => this.applyStyle('fontFamily', v)),
+            createInput('Font Stack', '', null),
+            this.createFontStackSelector(el),
             createInput('Font Size', this.getStyle('fontSize'), (v) => this.applyStyle('fontSize', v)),
             createInput('Font Weight', this.getStyle('fontWeight'), (v) => this.applyStyle('fontWeight', v), 'select', ['normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900']),
             createInput('Color', this.getStyle('color'), (v) => this.applyStyle('color', v), 'color'),
             createInput('Text Align', this.getStyle('textAlign'), (v) => this.applyStyle('textAlign', v), 'select', ['left', 'center', 'right', 'justify']),
             createInput('Line Height', this.getStyle('lineHeight'), (v) => this.applyStyle('lineHeight', v)),
-            createInput('Decoration', this.getStyle('textDecoration'), (v) => this.applyStyle('textDecoration', v), 'select', ['none', 'underline', 'overline', 'line-through'])
+            createInput('Decoration', this.getStyle('textDecoration'), (v) => this.applyStyle('textDecoration', v), 'select', ['none', 'underline', 'overline', 'line-through']),
+            createInput('Text Shadow', '', null),
+            this.createTextShadowJoystick(el),
+            this.createTextEffectsGallery(el)
         ]);
 
         // --- Appearance ---
@@ -5433,6 +5889,11 @@ if (${selector}) {
         createGroup('Effects', [
             createInput('Transform', this.getStyle('transform'), (v) => this.applyStyle('transform', v)),
             createInput('Transition', this.getStyle('transition'), (v) => this.applyStyle('transition', v))
+        ]);
+
+        // --- 3D Transform ---
+        createGroup('3D Transform', [
+            this.createTransform3D(el)
         ]);
 
         this.renderJSPanel();
