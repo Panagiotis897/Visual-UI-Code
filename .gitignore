@@ -3,3 +3,4 @@ __pycache__/
 server.log
 verification/
 .pytest_cache/
+node_modules

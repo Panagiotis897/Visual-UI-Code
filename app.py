@@ -366,6 +366,30 @@ def rename_file():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/new_component_name', methods=['POST'])
+def new_component_name():
+    data = request.json
+    path = data.get('path')
+    prefix = data.get('prefix', 'Component')
+
+    if not path:
+        return jsonify({'error': 'Path is required'}), 400
+
+    full_path = os.path.abspath(os.path.expanduser(path))
+    if not full_path.startswith(SAFE_BASE_DIR):
+        return jsonify({'error': 'Access denied'}), 403
+
+    try:
+        existing_files = os.listdir(full_path)
+        index = 1
+        while True:
+            filename = f"{prefix}_{index:02d}.html"
+            if filename not in existing_files:
+                return jsonify({'name': filename})
+            index += 1
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/github_import', methods=['POST'])
 def github_import():
     data = request.json
