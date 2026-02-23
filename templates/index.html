@@ -57,6 +57,11 @@
                         <span>GitHub Import</span>
                         <small>Clone and index repository</small>
                     </button>
+                    <button class="hub-btn" onclick="App.createComponent()">
+                        <i class="fas fa-cube"></i>
+                        <span>Create Component</span>
+                        <small>Single file component</small>
+                    </button>
                 </div>
 
                 <div class="hub-recent" id="hub-recent-section" style="display:none;">
@@ -109,6 +114,11 @@
                 <span class="separator"></span>
                 <button onclick="App.openProject()" title="Open Project"><i class="fas fa-folder-open"></i></button>
                 <input type="file" id="project-upload" webkitdirectory directory multiple style="display:none">
+                <span class="separator"></span>
+                <div id="file-info-display" style="display:flex; align-items:center; margin:0 10px; font-size:12px; color:#ccc;">
+                    <span id="file-name-display" style="margin-right:10px; font-weight:bold;"></span>
+                    <span id="mode-indicator" class="mode-badge" style="display:none; padding:2px 6px; border-radius:4px; font-size:10px; text-transform:uppercase;"></span>
+                </div>
                 <span class="separator"></span>
                 <button onclick="App.toggleTimelinePanel()" title="Toggle Timeline"><i class="fas fa-film"></i></button>
                 <button onclick="App.toggleCodeView()" title="Toggle Code Editor"><i class="fas fa-file-code"></i></button>

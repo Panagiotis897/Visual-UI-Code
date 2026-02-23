@@ -156,12 +156,41 @@ const App = {
         return `${html}\n\n<style>\n${css}\n</style>\n\n<script>\n${js}\n</script>`;
     },
 
+    updateUIState: function() {
+        const fileNameEl = document.getElementById('file-name-display');
+        const modeEl = document.getElementById('mode-indicator');
+        
+        if (fileNameEl && modeEl) {
+            if (this.currentFilePath) {
+                // Get filename from path (handle both / and \)
+                const parts = this.currentFilePath.split(/[/\\]/);
+                fileNameEl.textContent = parts[parts.length - 1];
+                
+                if (this.isComponentMode) {
+                    modeEl.textContent = 'COMPONENT';
+                    modeEl.style.display = 'inline-block';
+                    modeEl.style.backgroundColor = '#ff9800'; // Orange
+                    modeEl.style.color = '#fff';
+                } else {
+                    modeEl.textContent = 'PAGE';
+                    modeEl.style.display = 'inline-block';
+                    modeEl.style.backgroundColor = '#4caf50'; // Green
+                    modeEl.style.color = '#fff';
+                }
+            } else {
+                fileNameEl.textContent = 'No File Open';
+                modeEl.style.display = 'none';
+            }
+        }
+    },
+
     init: function() {
         this.projectIndex = { classes: [], ids: [] };
         this.styleTarget = 'id'; // Default to ID for components
         this.styleTargetName = '';
         this.lastSelectedElement = null;
         this.isDarkModeContext = false;
+        this.isComponentMode = false;
         // Load expanded paths
         try {
             const saved = JSON.parse(localStorage.getItem('vuc_expanded_paths'));
@@ -208,6 +237,7 @@ const App = {
         this.saveState();
         this.updateCode();
         this.renderStructureTree(); // Init Tree
+        this.updateUIState();
     },
 
     initStructureFileSelect: function() {
@@ -233,6 +263,240 @@ const App = {
     },
 
     // --- Navigation & UI Control ---
+    pickFolder: function(callback, path = null) {
+        if (!path) path = this.currentProjectPath || '~/projects';
+        
+        const container = document.createElement('div');
+        container.style.height = '400px';
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        
+        // Header (Up button, Path input)
+        const header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.gap = '10px';
+        header.style.marginBottom = '10px';
+        
+        const upBtn = document.createElement('button');
+        upBtn.innerHTML = '<i class="fas fa-level-up-alt"></i>';
+        upBtn.className = 'btn';
+        upBtn.onclick = () => {
+             const parts = path.split(/[/\\]/);
+             parts.pop();
+             const newPath = parts.join('/') || '/';
+             this.closeModal();
+             this.pickFolder(callback, newPath);
+        };
+        
+        const newFolderBtn = document.createElement('button');
+        newFolderBtn.innerHTML = '<i class="fas fa-folder-plus"></i>';
+        newFolderBtn.className = 'btn';
+        newFolderBtn.onclick = () => {
+             const name = prompt('Folder Name:');
+             if(name) {
+                 fetch('/api/create_folder', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ path: path + '/' + name })
+                 }).then(r=>r.json()).then(data => {
+                     if (data.error) alert(data.error);
+                     else {
+                         this.closeModal();
+                         this.pickFolder(callback, path); 
+                     }
+                 });
+             }
+        };
+
+        const pathDisplay = document.createElement('input');
+        pathDisplay.type = 'text';
+        pathDisplay.value = path;
+        pathDisplay.className = 'prop-input';
+        pathDisplay.style.flex = '1';
+        pathDisplay.onchange = (e) => {
+            this.closeModal();
+            this.pickFolder(callback, e.target.value);
+        };
+        
+        header.appendChild(upBtn);
+        header.appendChild(newFolderBtn);
+        header.appendChild(pathDisplay);
+        container.appendChild(header);
+        
+        // File List
+        const listContainer = document.createElement('div');
+        listContainer.style.flex = '1';
+        listContainer.style.overflowY = 'auto';
+        listContainer.style.border = '1px solid #333';
+        listContainer.style.borderRadius = '4px';
+        listContainer.style.padding = '5px';
+        listContainer.style.backgroundColor = '#1e1e1e';
+        listContainer.innerHTML = '<div style="padding:10px; color:#888;">Loading...</div>';
+        container.appendChild(listContainer);
+        
+        // Fetch files
+        fetch('/api/list_files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                listContainer.innerHTML = `<div style="color:red; padding:5px;">Error: ${data.error}</div>`;
+                return;
+            }
+            
+            listContainer.innerHTML = '';
+            // Sort: folders first
+            const items = data.items.sort((a,b) => {
+                if (a.type === b.type) return a.name.localeCompare(b.name);
+                return a.type === 'dir' ? -1 : 1;
+            });
+            
+            items.forEach(item => {
+                if (item.type !== 'dir') return; // Only show folders
+                
+                const div = document.createElement('div');
+                div.style.padding = '5px 10px';
+                div.style.cursor = 'pointer';
+                div.style.display = 'flex';
+                div.style.alignItems = 'center';
+                div.style.gap = '10px';
+                div.style.borderBottom = '1px solid #333';
+                div.innerHTML = `<i class="fas fa-folder" style="color:#dcb67a;"></i> ${item.name}`;
+                
+                div.onclick = () => {
+                    this.closeModal();
+                    this.pickFolder(callback, item.path);
+                };
+                
+                listContainer.appendChild(div);
+            });
+        })
+        .catch(err => {
+            listContainer.innerHTML = `<div style="color:red; padding:10px;">Connection Error</div>`;
+        });
+        
+        // Footer
+        const footer = document.createElement('div');
+        footer.style.marginTop = '15px';
+        footer.style.display = 'flex';
+        footer.style.justifyContent = 'flex-end';
+        footer.style.gap = '10px';
+        
+        const cancelBtn = document.createElement('button');
+        cancelBtn.innerText = 'Cancel';
+        cancelBtn.className = 'btn';
+        cancelBtn.onclick = () => this.closeModal();
+        
+        const selectBtn = document.createElement('button');
+        selectBtn.innerText = 'Select This Folder';
+        selectBtn.className = 'btn primary';
+        selectBtn.onclick = () => {
+            this.closeModal();
+            callback(path);
+        };
+        
+        footer.appendChild(cancelBtn);
+        footer.appendChild(selectBtn);
+        container.appendChild(footer);
+
+        this.showModal({
+            title: 'Select Folder',
+            message: '',
+            onOk: null
+        });
+        
+        // Inject content
+        const msgEl = document.getElementById('generic-modal-message');
+        if (msgEl) {
+            msgEl.innerHTML = '';
+            msgEl.appendChild(container);
+        }
+    },
+
+    createComponent: function() {
+        this.showModal({
+            title: 'Create Component',
+            message: 'Enter component name:',
+            showInput: true,
+            defaultValue: 'MyComponent',
+            onOk: (name) => {
+                if (!name) return;
+                // Now pick folder
+                this.pickFolder((folderPath) => {
+                    const fullPath = folderPath + '/' + name + '.html';
+                    
+                    // Create file with empty component template (no boilerplate)
+                    const content = `<!-- Component: ${name} -->\n<style>\n/* ${name} styles */\n</style>\n<div id="${name}">\n  <!-- Content -->\n</div>`;
+                    
+                    fetch('/api/save_file', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filename: fullPath, content: content })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.error) {
+                            alert('Error: ' + data.error);
+                        } else {
+                            this.logConsole(`Created component ${name}`, 'success');
+                            this.openFile(fullPath);
+                            document.getElementById('project-hub').style.display = 'none';
+                        }
+                    });
+                });
+            }
+        });
+    },
+
+    saveCurrentWork: function() {
+        if (!this.currentFilePath) {
+            const state = Builder.getHTML();
+            // Legacy/Fallback save
+            localStorage.setItem('vuc_project', JSON.stringify(state)); 
+            alert('Project saved to local storage! (No file open)');
+            return;
+        }
+
+        let content = '';
+        
+        // Check if we are in component mode
+        if (this.isComponentMode) {
+             content = this.serializeSFC();
+        } else {
+             const state = Builder.getHTML(); // {html, css}
+             let css = state.css || '';
+             css = css.replace(/#preview-canvas\s+/g, '').trim();
+
+             // Default Project/Page Mode: Save as full HTML
+             content = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+${css}
+</style>
+</head>
+<body>
+${state.html}
+</body>
+</html>`;
+        }
+        
+        fetch('/api/save_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: this.currentFilePath, content: content })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) this.logConsole('Error saving: ' + data.error, 'error');
+            else this.logConsole('Saved ' + this.currentFilePath, 'success');
+        });
+    },
+
     goHome: function() {
         document.getElementById('project-hub').style.display = 'flex';
     },
@@ -671,10 +935,12 @@ Views:
         const input = document.getElementById('generic-modal-input');
         const value = input ? input.value : null;
 
-        if (this.modalCallback) {
-            this.modalCallback(value);
-        }
+        const callback = this.modalCallback;
         this.closeModal();
+
+        if (callback) {
+            callback(value);
+        }
     },
 
     // --- Project Hub Logic ---
@@ -4457,8 +4723,13 @@ if (${selector}) {
 
             // Determine type
             const ext = path.split('.').pop().toLowerCase();
+            this.isComponentMode = false; // Default, override if component
 
             if (ext === 'html' || ext === 'component') {
+                // Detect Component Mode (No Boilerplate)
+                const isFullPage = data.content.includes('<!DOCTYPE html>') || data.content.includes('<html');
+                this.isComponentMode = !isFullPage;
+
                 const sfc = this.parseSFC(data.content);
 
                 // Load HTML
@@ -4494,6 +4765,7 @@ if (${selector}) {
 
                 this.switchSidebar('structure');
                 this.logConsole(`Opened component ${path}`, 'success');
+                this.updateUIState();
             } else if (ext === 'css') {
                   this.currentCSSPath = path; // Track active CSS file
                   this.currentCSSContent = data.content; // Store content
@@ -4513,14 +4785,17 @@ if (${selector}) {
                       this.switchSidebar('css');
                   }
                   this.logConsole(`Opened CSS file ${path}`, 'success');
+                  this.updateUIState();
              } else if (ext === 'js' || ext === 'ts') {
                  if (window.scriptEditor) {
                      window.scriptEditor.setValue(data.content);
                      this.switchBottomPanel('script'); // Switch to Script Editor Panel
                      this.logConsole(`Opened ${path}`, 'success');
                  }
+                 this.updateUIState();
             } else {
                  this.logConsole(`Opened ${path} (Read-only)`, 'info');
+                 this.updateUIState();
             }
         });
     },

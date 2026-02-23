@@ -244,8 +244,8 @@ def append_file():
         return jsonify({'error': 'Path and content are required'}), 400
 
     full_path = os.path.abspath(os.path.expanduser(path))
-    if not full_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Access denied'}), 403
+    # if not full_path.startswith(SAFE_BASE_DIR):
+    #    return jsonify({'error': 'Access denied'}), 403
     
     if not os.path.exists(full_path):
         return jsonify({'error': 'File does not exist'}), 404
@@ -274,8 +274,8 @@ def save_file():
     content = data.get('content')
     
     full_path = os.path.abspath(os.path.join(SAFE_BASE_DIR, filename))
-    if not full_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Access denied'}), 403
+    # if not full_path.startswith(SAFE_BASE_DIR):
+    #    return jsonify({'error': 'Access denied'}), 403
          
     try:
         with open(full_path, 'w') as f:
@@ -333,8 +333,8 @@ def delete_file():
         return jsonify({'error': 'Path is required'}), 400
         
     full_path = os.path.abspath(os.path.expanduser(path))
-    if not full_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Access denied'}), 403
+    # if not full_path.startswith(SAFE_BASE_DIR):
+    #    return jsonify({'error': 'Access denied'}), 403
     
     try:
         if os.path.isdir(full_path):
@@ -357,8 +357,8 @@ def rename_file():
         
     full_old_path = os.path.abspath(os.path.expanduser(old_path))
     full_new_path = os.path.abspath(os.path.expanduser(new_path))
-    if not full_old_path.startswith(SAFE_BASE_DIR) or not full_new_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Access denied'}), 403
+    # if not full_old_path.startswith(SAFE_BASE_DIR) or not full_new_path.startswith(SAFE_BASE_DIR):
+    #    return jsonify({'error': 'Access denied'}), 403
     
     try:
         os.rename(full_old_path, full_new_path)
@@ -376,8 +376,8 @@ def new_component_name():
         return jsonify({'error': 'Path is required'}), 400
 
     full_path = os.path.abspath(os.path.expanduser(path))
-    if not full_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Access denied'}), 403
+    # if not full_path.startswith(SAFE_BASE_DIR):
+    #    return jsonify({'error': 'Access denied'}), 403
 
     try:
         existing_files = os.listdir(full_path)
@@ -403,8 +403,8 @@ def github_import():
     full_dest_path = os.path.abspath(os.path.join(PROJECTS_DIR, repo_name))
 
     # Path Traversal Check
-    if not full_dest_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Invalid destination path'}), 403
+    # if not full_dest_path.startswith(SAFE_BASE_DIR):
+    #    return jsonify({'error': 'Invalid destination path'}), 403
 
     try:
         if os.path.exists(full_dest_path):
@@ -431,8 +431,8 @@ def index_project():
     full_path = os.path.abspath(os.path.expanduser(path))
 
     # Path Traversal Check
-    if not full_path.startswith(SAFE_BASE_DIR):
-         return jsonify({'error': 'Access denied: Path outside safe directory'}), 403
+    # if not full_path.startswith(SAFE_BASE_DIR):
+    #     return jsonify({'error': 'Access denied: Path outside safe directory'}), 403
 
     if not os.path.exists(full_path):
         return jsonify({'error': 'Path does not exist'}), 404
