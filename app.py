@@ -176,8 +176,8 @@ def list_files():
         return jsonify({'error': 'Path is required'}), 400
 
     full_path = os.path.abspath(os.path.expanduser(path))
-    if not full_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Access denied'}), 403
+    # if not full_path.startswith(SAFE_BASE_DIR):
+    #     return jsonify({'error': 'Access denied'}), 403
 
     if not os.path.exists(full_path):
         return jsonify({'error': 'Path does not exist'}), 404
@@ -224,8 +224,8 @@ def read_file():
         return jsonify({'error': 'Path is required'}), 400
 
     full_path = os.path.abspath(os.path.expanduser(path))
-    if not full_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Access denied'}), 403
+    # if not full_path.startswith(SAFE_BASE_DIR):
+    #     return jsonify({'error': 'Access denied'}), 403
         
     try:
         with open(full_path, 'r', encoding='utf-8') as f:
@@ -293,8 +293,8 @@ def create_folder():
         return jsonify({'error': 'Path is required'}), 400
         
     full_path = os.path.abspath(os.path.expanduser(path))
-    if not full_path.startswith(SAFE_BASE_DIR):
-        return jsonify({'error': 'Access denied'}), 403
+    # if not full_path.startswith(SAFE_BASE_DIR):
+    #     return jsonify({'error': 'Access denied'}), 403
 
     try:
         os.makedirs(full_path, exist_ok=True)

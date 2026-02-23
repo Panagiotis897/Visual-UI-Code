@@ -25,44 +25,77 @@
         <div class="hub-sidebar">
             <div class="hub-logo"><i class="fas fa-code"></i> Visual UI Code</div>
             <ul class="hub-nav">
-                <!-- <li data-hub-tab="templates"><i class="fas fa-th-large"></i> Templates</li> -->
+                <li class="active" onclick="App.switchHubTab('home')"><i class="fas fa-home"></i> Home</li>
+                <li onclick="App.switchHubTab('components')"><i class="fas fa-cubes"></i> Component Library</li>
             </ul>
         </div>
         <div class="hub-content">
-            <div class="hub-header">
-                <h2>Welcome</h2>
-                <p>Start a new project or open a recent one.</p>
-            </div>
-            <div class="hub-actions">
-                <button class="hub-btn" onclick="App.openProject()">
-                    <i class="fas fa-folder-open"></i>
-                    <span>Open Folder</span>
-                    <small>Open existing project folder</small>
-                </button>
-                <button class="hub-btn" onclick="App.startNewProject()">
-                    <i class="fas fa-plus-circle"></i>
-                    <span>New Project</span>
-                    <small>Create a new project</small>
-                </button>
-                <button class="hub-btn" onclick="App.startScratchpad()">
-                    <i class="fas fa-sticky-note"></i>
-                    <span>Scratchpad</span>
-                    <small>No-file mode (Memory only)</small>
-                </button>
-                <button class="hub-btn" onclick="App.showGitHubImport()">
-                    <i class="fab fa-github"></i>
-                    <span>GitHub Import</span>
-                    <small>Clone and index repository</small>
-                </button>
+            <!-- Home Section -->
+            <div id="hub-section-home">
+                <div class="hub-header">
+                    <h2>Welcome</h2>
+                    <p>Start a new project or open a recent one.</p>
+                </div>
+                <div class="hub-actions">
+                    <button class="hub-btn" onclick="App.openProject()">
+                        <i class="fas fa-folder-open"></i>
+                        <span>Open Folder</span>
+                        <small>Open existing project folder</small>
+                    </button>
+                    <button class="hub-btn" onclick="App.startNewProject()">
+                        <i class="fas fa-plus-circle"></i>
+                        <span>New Project</span>
+                        <small>Create a new project</small>
+                    </button>
+                    <button class="hub-btn" onclick="App.startScratchpad()">
+                        <i class="fas fa-sticky-note"></i>
+                        <span>Scratchpad</span>
+                        <small>No-file mode (Memory only)</small>
+                    </button>
+                    <button class="hub-btn" onclick="App.showGitHubImport()">
+                        <i class="fab fa-github"></i>
+                        <span>GitHub Import</span>
+                        <small>Clone and index repository</small>
+                    </button>
+                </div>
+
+                <div class="hub-recent" id="hub-recent-section" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                        <h3 style="margin:0;">Recent Projects</h3>
+                        <button onclick="App.clearRecentProjects()" class="btn" style="font-size:11px; padding:4px 8px; border:1px solid var(--border-color);">Clear</button>
+                    </div>
+                    <div id="recent-projects-list">
+                        <!-- JS Populated -->
+                    </div>
+                </div>
             </div>
 
-            <div class="hub-recent" id="hub-recent-section" style="display:none;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
-                    <h3 style="margin:0;">Recent Projects</h3>
-                    <button onclick="App.clearRecentProjects()" class="btn" style="font-size:11px; padding:4px 8px; border:1px solid var(--border-color);">Clear</button>
+            <!-- Components Section -->
+            <div id="hub-section-components" style="display:none; flex-direction: column; height: 100%;">
+                <div class="hub-header">
+                    <h2>Component Library</h2>
+                    <p>Manage your production-ready HTML components.</p>
                 </div>
-                <div id="recent-projects-list">
-                    <!-- JS Populated -->
+                
+                <div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center; background: var(--bg-secondary); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <div style="flex: 1;">
+                        <label style="display:block; margin-bottom:5px; color:#ccc; font-size:12px;">Library Location</label>
+                        <div style="display:flex; gap:5px;">
+                             <input type="text" id="component-lib-path" placeholder="Select a folder..." style="flex:1; padding: 8px; border: 1px solid #444; background: #1e1e1e; color: #ccc; border-radius: 4px;">
+                             <button class="btn" onclick="App.browseComponentLibrary()" style="padding: 0 15px;"><i class="fas fa-folder-open"></i> Browse</button>
+                             <button class="btn" onclick="App.loadComponentLibrary()" style="padding: 0 15px;"><i class="fas fa-sync-alt"></i> Load</button>
+                             <input type="file" id="component-lib-upload" webkitdirectory directory style="display:none">
+                        </div>
+                    </div>
+                </div>
+
+                <div style="flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); padding: 15px;">
+                    <div id="component-library-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px;">
+                        <div style="color: #888; grid-column: 1/-1; text-align: center; padding: 40px;">
+                            <i class="fas fa-cubes" style="font-size: 48px; margin-bottom: 15px; opacity: 0.5;"></i>
+                            <p>Select a folder to view components.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

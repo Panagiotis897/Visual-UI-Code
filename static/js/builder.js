@@ -91,8 +91,15 @@ const Builder = {
         
         // Regenerate IDs
         const rehydrate = (el) => {
-            el.id = el.tagName.toLowerCase() + '-' + Math.random().toString(36).substr(2, 9);
+            const oldId = el.id;
+            const newId = el.tagName.toLowerCase() + '-' + Math.random().toString(36).substr(2, 9);
+            el.id = newId;
             el.classList.add('dropped-element'); // Ensure it has the class
+            
+            if (window.App && window.App.duplicateStyleRule && oldId) {
+                window.App.duplicateStyleRule(oldId, newId);
+            }
+
             Array.from(el.children).forEach(rehydrate);
         };
         rehydrate(clone);
@@ -117,9 +124,15 @@ const Builder = {
         
         // Create wrapper
         const wrapper = document.createElement(tagName);
-        wrapper.id = tagName + '-' + Math.random().toString(36).substr(2, 9);
+        const wrapperId = tagName + '-' + Math.random().toString(36).substr(2, 9);
+        wrapper.id = wrapperId;
         wrapper.classList.add('dropped-element');
-        wrapper.style.padding = '10px'; // Visual aid
+        
+        if (window.App && window.App.addStyleRule) {
+            window.App.addStyleRule('#' + wrapperId, { padding: '10px' });
+        } else {
+            wrapper.style.padding = '10px'; // Fallback
+        }
         
         // Find the first occurrence in the DOM to insert before
         let insertRef = null;
@@ -413,36 +426,53 @@ const Builder = {
         const temp = document.createElement('div');
         temp.innerHTML = block.html;
         
+        let cssToInject = block.css || '';
+        
         Array.from(temp.children).forEach(child => {
             const clone = child.cloneNode(true);
             
-            // Recursive class adder
-            const addClasses = (el) => {
+            // Recursive rehydration and CSS update
+            const rehydrate = (el) => {
                 el.classList.add('dropped-element');
-                // Remove 'selected' if it was saved as selected
                 el.classList.remove('selected');
                 
-                // If it doesn't have an ID, give it one
-                if (!el.id) el.id = 'saved-' + Math.random().toString(36).substr(2, 9);
+                // Get old ID (from saved HTML)
+                const oldId = el.id;
                 
-                Array.from(el.children).forEach(addClasses);
+                // Generate new ID
+                const newId = el.tagName.toLowerCase() + '-' + Math.random().toString(36).substr(2, 9);
+                el.id = newId;
+                
+                // Update CSS references if we have an old ID and CSS
+                if (oldId && cssToInject) {
+                    // Replace #oldId with #newId
+                    // Use boundary check to avoid partial replacements
+                    const regex = new RegExp('#' + oldId + '(?![\\w-])', 'g');
+                    cssToInject = cssToInject.replace(regex, '#' + newId);
+                }
+                
+                Array.from(el.children).forEach(rehydrate);
             };
-            addClasses(clone);
+            rehydrate(clone);
             
             parent.appendChild(clone);
             this.selectElement(clone);
 
-            // Inject CSS
-            if (block.css) {
+            // Inject CSS using App helper
+            if (cssToInject && window.App && window.App.importCSS) {
+                window.App.importCSS(cssToInject);
+            } else if (cssToInject) {
+                // Fallback
                 let styleTag = document.getElementById('vuc-custom-styles');
                 if (!styleTag) {
                     styleTag = document.createElement('style');
                     styleTag.id = 'vuc-custom-styles';
                     document.head.appendChild(styleTag);
                 }
-                styleTag.textContent += '\n' + block.css;
+                styleTag.textContent += '\n' + cssToInject;
             }
-            // Inject JS (simple eval for demonstration or append to global js)
+
+            // Inject JS
             if (block.js && window.App) {
                 window.App.logConsole('Injected component JS', 'info');
             }
@@ -495,6 +525,10 @@ const Builder = {
         
         // Ensure we are creating the correct tag
         const el = document.createElement(def.tag);
+
+        // Generate a unique ID first so we can use it for styling
+        const id = type + '-' + Math.random().toString(36).substr(2, 9);
+        el.id = id;
         
         // Add default classes
         el.classList.add('dropped-element');
@@ -503,8 +537,13 @@ const Builder = {
              classes.forEach(c => { if(c) el.classList.add(c); });
         }
 
-        // Add default styles
-        Object.assign(el.style, def.defaultStyles);
+        // Add default styles via Stylesheet (no inline styles)
+        if (window.App && window.App.addStyleRule) {
+             window.App.addStyleRule('#' + id, def.defaultStyles);
+        } else {
+             // Fallback
+             Object.assign(el.style, def.defaultStyles);
+        }
 
         // Add attributes
         for (const [key, value] of Object.entries(def.attributes)) {
@@ -517,10 +556,6 @@ const Builder = {
         if (!def.isVoid && def.defaultContent) {
             el.innerText = def.defaultContent;
         }
-
-        // Generate a unique ID
-        const id = type + '-' + Math.random().toString(36).substr(2, 9);
-        el.id = id;
 
         // Append to parent
         parent.appendChild(el);
@@ -605,12 +640,36 @@ const Builder = {
         
         Array.from(clone.children).forEach(cleanElements);
         
-        return clone.innerHTML;
+        // Get CSS
+        const styleTag = document.getElementById('vuc-custom-styles');
+        const css = styleTag ? styleTag.innerHTML : '';
+
+        return {
+            html: clone.innerHTML,
+            css: css
+        };
     },
     
-    // Load from HTML string (for undo/redo or load)
-    loadHTML: function(html) {
-        this.canvas.innerHTML = html;
+    // Load from state object (for undo/redo or load)
+    loadHTML: function(state) {
+        if (typeof state === 'string') {
+            // Backward compatibility
+            this.canvas.innerHTML = state;
+        } else {
+            this.canvas.innerHTML = state.html || '';
+            
+            // Restore CSS
+            let styleTag = document.getElementById('vuc-custom-styles');
+            if (!styleTag) {
+                styleTag = document.createElement('style');
+                styleTag.id = 'vuc-custom-styles';
+                document.head.appendChild(styleTag);
+            }
+            if (state.css !== undefined) {
+                styleTag.innerHTML = state.css;
+            }
+        }
+
         // Re-attach listeners or add classes? 
         // The classes 'dropped-element' are needed for interactions
         const rehydrate = (element) => {

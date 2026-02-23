@@ -141,14 +141,12 @@ const App = {
     },
 
     serializeSFC: function() {
-        const html = Builder.getHTML();
+        const state = Builder.getHTML();
+        const html = state.html;
 
-        let css = '';
-        const styleEl = document.getElementById('vuc-custom-styles');
-        if (styleEl) {
-            // Strip editor scoping
-            css = styleEl.textContent.replace(/#preview-canvas\s+/g, '').trim();
-        }
+        let css = state.css || '';
+        // Strip editor scoping
+        css = css.replace(/#preview-canvas\s+/g, '').trim();
 
         let js = '';
         if (window.scriptEditor) {
@@ -196,6 +194,7 @@ const App = {
         this.initStructureFileSelect();
         this.setupGlobalShortcuts();
         this.initAnimationStudio();
+        this.initComponentLibrary(); // Init Library
 
         // Load File Tree if project path exists
         if (this.currentProjectPath) {
@@ -239,8 +238,14 @@ const App = {
     },
 
     showGitHubImport: function() {
-        this.showModal('GitHub Import', 'Enter the repository URL (and destination folder if needed)', 'https://github.com/user/repo', (val) => {
-            this.handleGitHubImport(val);
+        this.showModal({
+            title: 'GitHub Import',
+            message: 'Enter the repository URL (and destination folder if needed)',
+            showInput: true,
+            defaultValue: 'https://github.com/user/repo',
+            onOk: (val) => {
+                this.handleGitHubImport(val);
+            }
         });
     },
 
@@ -905,6 +910,330 @@ Views:
             localStorage.removeItem('vuc_recent_projects');
             this.renderRecentProjects();
         }
+    },
+
+    // --- Component Library Logic ---
+
+    switchHubTab: function(tabName) {
+        const homeSection = document.getElementById('hub-section-home');
+        const compSection = document.getElementById('hub-section-components');
+        const tabs = document.querySelectorAll('.hub-nav li');
+        
+        if (!homeSection || !compSection) return;
+        
+        if (tabName === 'home') {
+            homeSection.style.display = 'block';
+            compSection.style.display = 'none';
+        } else if (tabName === 'components') {
+            homeSection.style.display = 'none';
+            compSection.style.display = 'flex';
+            this.initComponentLibrary();
+        }
+        
+        tabs.forEach(tab => {
+            if (tab.innerText.toLowerCase().includes(tabName === 'home' ? 'home' : 'component')) {
+                tab.classList.add('active');
+            } else {
+                tab.classList.remove('active');
+            }
+        });
+    },
+
+    initComponentLibrary: function() {
+        const input = document.getElementById('component-lib-path');
+        const upload = document.getElementById('component-lib-upload');
+        
+        // Load saved path
+        const savedPath = localStorage.getItem('vuc_component_lib_path');
+        if (savedPath && input) {
+            input.value = savedPath;
+        }
+        
+        // Setup upload listener if not already done
+        if (upload && !upload.dataset.init) {
+            upload.dataset.init = 'true';
+            upload.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                     const file = e.target.files[0];
+                     // Heuristic to get folder path from file input (works in some contexts)
+                     if (file.path) {
+                         const path = file.path.replace(/[/\\][^/\\]*$/, '');
+                         if (input) input.value = path;
+                         this.loadComponentLibrary(path);
+                     }
+                }
+            });
+        }
+    },
+    
+    browseComponentLibrary: function() {
+        // Reuse project picker logic but for folder selection
+        const input = document.getElementById('component-lib-path');
+        const currentPath = input ? input.value : (this.currentProjectPath || '~/');
+        
+        this.showFolderPicker(currentPath, (selectedPath) => {
+            if (input) input.value = selectedPath;
+            this.loadComponentLibrary(selectedPath);
+        });
+    },
+
+    showFolderPicker: function(startPath, onSelect) {
+        // Simplified version of showProjectPicker for selecting any folder
+        let path = startPath || '~/';
+        
+        const container = document.createElement('div');
+        container.style.height = '400px';
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        
+        // Header
+        const header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.gap = '10px';
+        header.style.marginBottom = '10px';
+        header.style.alignItems = 'center';
+        
+        const upBtn = document.createElement('button');
+        upBtn.innerHTML = '<i class="fas fa-level-up-alt"></i>';
+        upBtn.className = 'btn';
+        upBtn.onclick = () => {
+            let parent = path.replace(/\\/g, '/').split('/');
+            parent.pop();
+            const parentPath = parent.join('/') || '/';
+            updateList(parentPath);
+        };
+        
+        const pathDisplay = document.createElement('input');
+        pathDisplay.type = 'text';
+        pathDisplay.value = path;
+        pathDisplay.className = 'prop-input';
+        pathDisplay.style.flex = '1';
+        pathDisplay.onchange = (e) => updateList(e.target.value);
+        
+        header.appendChild(upBtn);
+        header.appendChild(pathDisplay);
+        container.appendChild(header);
+        
+        // List
+        const listContainer = document.createElement('div');
+        listContainer.style.flex = '1';
+        listContainer.style.overflowY = 'auto';
+        listContainer.style.border = '1px solid #333';
+        listContainer.style.borderRadius = '4px';
+        listContainer.style.padding = '5px';
+        listContainer.style.backgroundColor = '#1e1e1e';
+        listContainer.innerHTML = '<div style="padding:10px; color:#888;">Loading...</div>';
+        container.appendChild(listContainer);
+        
+        // Select Button
+        const selectBtn = document.createElement('button');
+        selectBtn.innerText = 'Select This Folder';
+        selectBtn.className = 'btn primary';
+        selectBtn.style.marginTop = '10px';
+        selectBtn.onclick = () => {
+            onSelect(path);
+            this.closeModal();
+        };
+        container.appendChild(selectBtn);
+        
+        const updateList = (newPath) => {
+            listContainer.innerHTML = '<div style="padding:10px; color:#888;">Loading...</div>';
+            
+            fetch('/api/list_files', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: newPath })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    listContainer.innerHTML = `<div style="color:red; padding:10px;">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                path = data.path; // update current path
+                pathDisplay.value = path;
+                
+                listContainer.innerHTML = '';
+                const items = data.items.filter(i => i.type === 'dir'); // Only show dirs
+                
+                if (items.length === 0) {
+                    listContainer.innerHTML = '<div style="padding:10px; color:#666;">No subdirectories found.</div>';
+                }
+                
+                items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.style.padding = '5px 10px';
+                    div.style.cursor = 'pointer';
+                    div.style.display = 'flex';
+                    div.style.alignItems = 'center';
+                    div.style.gap = '10px';
+                    div.onmouseover = () => div.style.backgroundColor = '#2a2d2e';
+                    div.onmouseout = () => div.style.backgroundColor = 'transparent';
+                    div.onclick = () => updateList(item.path);
+                    
+                    div.innerHTML = `<i class="fas fa-folder" style="color:#dcb67a;"></i> ${item.name}`;
+                    listContainer.appendChild(div);
+                });
+            })
+            .catch(err => {
+                listContainer.innerHTML = `<div style="color:red; padding:10px;">Error: ${err.message}</div>`;
+            });
+        };
+        
+        // Initial load
+        updateList(path);
+        
+        this.showModal({
+            title: 'Select Component Library Folder',
+            message: '',
+            showInput: false,
+            // Custom content injection
+        });
+        
+        // Inject content
+        const msgEl = document.getElementById('generic-modal-message');
+        if (msgEl) {
+            msgEl.innerHTML = '';
+            msgEl.appendChild(container);
+        }
+    },
+    
+    loadComponentLibrary: function(pathOverride) {
+        const input = document.getElementById('component-lib-path');
+        let path = pathOverride || (input ? input.value : '');
+        
+        if (!path) return;
+        
+        // Save path
+        localStorage.setItem('vuc_component_lib_path', path);
+        if (input) input.value = path;
+        
+        const list = document.getElementById('component-library-list');
+        if (list) list.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:#888;">Loading...</div>';
+        
+        // Call Backend
+        fetch('/api/list_files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path, recursive: false })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                this.renderComponentLibrary([], data.error);
+            } else {
+                const htmlFiles = data.items.filter(item => item.type === 'file' && item.name.endsWith('.html'));
+                this.renderComponentLibrary(htmlFiles);
+            }
+        })
+        .catch(err => {
+             this.renderComponentLibrary([], err.message);
+        });
+    },
+    
+    renderComponentLibrary: function(files, error) {
+        const container = document.getElementById('component-library-list');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        if (error) {
+            container.innerHTML = `<div style="color: #f44336; padding: 20px; text-align:center; grid-column:1/-1;">Error: ${error}</div>`;
+            return;
+        }
+        
+        if (files.length === 0) {
+            container.innerHTML = `<div style="color: #888; padding: 20px; text-align:center; grid-column:1/-1;">No HTML components found in this folder.</div>`;
+            return;
+        }
+        
+        files.forEach(file => {
+            const card = document.createElement('div');
+            card.style.background = '#252526';
+            card.style.border = '1px solid #3e3e42';
+            card.style.borderRadius = '4px';
+            card.style.padding = '10px';
+            card.style.display = 'flex';
+            card.style.flexDirection = 'column';
+            card.style.gap = '10px';
+            card.style.cursor = 'pointer';
+            card.style.transition = 'background 0.2s';
+            card.style.height = '120px';
+            
+            card.onmouseover = () => card.style.background = '#2d2d30';
+            card.onmouseout = () => card.style.background = '#252526';
+            
+            const name = file.name.replace('.html', '');
+            
+            const header = document.createElement('div');
+            header.style.fontWeight = 'bold';
+            header.style.color = '#fff';
+            header.style.display = 'flex';
+            header.style.alignItems = 'center';
+            header.style.gap = '8px';
+            header.innerHTML = `<i class="fas fa-cube" style="color:#4caf50;"></i> ${name}`;
+            card.appendChild(header);
+
+            const pathEl = document.createElement('div');
+            pathEl.style.fontSize = '11px';
+            pathEl.style.color = '#888';
+            pathEl.style.flex = '1';
+            pathEl.style.overflow = 'hidden';
+            pathEl.style.textOverflow = 'ellipsis';
+            pathEl.innerText = file.path;
+            card.appendChild(pathEl);
+
+            const btnGroup = document.createElement('div');
+            btnGroup.style.display = 'flex';
+            btnGroup.style.gap = '5px';
+            btnGroup.style.marginTop = 'auto';
+
+            const previewBtn = document.createElement('button');
+            previewBtn.className = 'btn small';
+            previewBtn.style.flex = '1';
+            previewBtn.innerText = 'Preview';
+            previewBtn.onclick = (e) => {
+                e.stopPropagation();
+                App.previewComponent(file.path);
+            };
+            btnGroup.appendChild(previewBtn);
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'btn small';
+            copyBtn.title = 'Copy Path';
+            copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
+            copyBtn.onclick = (e) => {
+                e.stopPropagation();
+                App.copyComponentPath(file.path);
+            };
+            btnGroup.appendChild(copyBtn);
+
+            card.appendChild(btnGroup);
+            container.appendChild(card);
+        });
+    },
+    
+    previewComponent: function(path) {
+         fetch('/api/read_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.content) {
+                const win = window.open('', '_blank');
+                win.document.write(data.content);
+                win.document.close();
+            }
+        });
+    },
+    
+    copyComponentPath: function(path) {
+        navigator.clipboard.writeText(path).then(() => {
+            this.logConsole('Path copied to clipboard', 'success');
+        });
     },
 
     initProjectHub: function() {
@@ -1738,21 +2067,157 @@ Views:
         this.renderSavedBlocks();
     },
 
-        getStylesForElement: function(el) {
-        let css = '';
+    getStylesForElement: function(rootElement) {
+        // Collect all potential stylesheets
         const styleEl = document.getElementById('vuc-custom-styles');
-        if (!styleEl) return '';
-        const sheet = styleEl.sheet;
-        const selector = '#' + el.id;
-        if (!el.id) return '';
+        const animEl = document.getElementById('vuc-animations');
+        const sheets = [];
+        if (styleEl) sheets.push(styleEl.sheet);
+        if (animEl) sheets.push(animEl.sheet);
+        
+        if (sheets.length === 0) return '';
 
-        for (let i = 0; i < sheet.cssRules.length; i++) {
-            const rule = sheet.cssRules[i];
-            if (rule.selectorText && rule.selectorText.includes(selector)) {
-                css += rule.cssText + '\n';
+        let cssText = '';
+
+        // 1. Collect all IDs in the subtree
+        const ids = [];
+        const usedAnimations = new Set();
+        
+        const collectIdsAndAnims = (el) => {
+            if (el.id) ids.push(el.id);
+            
+            // Check for animation usage
+            const computed = el.style.animationName || (window.getComputedStyle ? window.getComputedStyle(el).animationName : '');
+            if (computed && computed !== 'none') {
+                usedAnimations.add(computed);
             }
+            
+            Array.from(el.children).forEach(collectIdsAndAnims);
+        };
+        collectIdsAndAnims(rootElement);
+
+        const processRules = (rules) => {
+            for (let i = 0; i < rules.length; i++) {
+                const rule = rules[i];
+                
+                if (rule.type === CSSRule.STYLE_RULE) {
+                    for (const id of ids) {
+                        if (rule.selectorText.includes('#' + id)) {
+                            cssText += rule.cssText + '\n';
+                            // Also check for animation in the rule itself
+                            if (rule.style.animationName) {
+                                usedAnimations.add(rule.style.animationName);
+                            }
+                            break; 
+                        }
+                    }
+                } else if (rule.type === CSSRule.MEDIA_RULE) {
+                    let innerRules = '';
+                    for (let j = 0; j < rule.cssRules.length; j++) {
+                        const subRule = rule.cssRules[j];
+                        if (subRule.type === CSSRule.STYLE_RULE) {
+                             for (const id of ids) {
+                                if (subRule.selectorText.includes('#' + id)) {
+                                    innerRules += subRule.cssText + '\n';
+                                    if (subRule.style.animationName) {
+                                        usedAnimations.add(subRule.style.animationName);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (innerRules) {
+                        cssText += `@media ${rule.conditionText} {\n${innerRules}}\n`;
+                    }
+                } else if (rule.type === CSSRule.KEYFRAMES_RULE) {
+                    // We will process keyframes in a second pass or check against set
+                    if (usedAnimations.has(rule.name)) {
+                         cssText += rule.cssText + '\n';
+                    }
+                }
+            }
+        };
+
+        try {
+            sheets.forEach(sheet => {
+                try {
+                    processRules(sheet.cssRules);
+                } catch(e) {
+                     console.warn("Error processing sheet rules:", e);
+                }
+            });
+            
+            // Second pass for Keyframes (in case they were defined *after* usage or we missed them)
+            // Actually, processRules handles it if we encounter keyframes *after* finding usage.
+            // But if keyframes appear *before* usage in the sheet iteration, we might miss them if we didn't know about the usage yet.
+            // So, safer to do a dedicated pass for keyframes after we collected all usages from style rules.
+            
+            // However, iterating twice is expensive. 
+            // Better approach: collect all rules first, then filter? 
+            // Or just iterate again for keyframes specifically.
+            
+            sheets.forEach(sheet => {
+                 try {
+                     for (let i = 0; i < sheet.cssRules.length; i++) {
+                         const rule = sheet.cssRules[i];
+                         if (rule.type === CSSRule.KEYFRAMES_RULE) {
+                             if (usedAnimations.has(rule.name) && !cssText.includes(rule.cssText)) {
+                                 cssText += rule.cssText + '\n';
+                             }
+                         }
+                     }
+                 } catch(e) {}
+            });
+            
+        } catch(e) {
+            console.warn("Error extracting styles:", e);
         }
-        return css;
+        return cssText;
+    },
+
+    importCSS: function(cssText) {
+        if (!cssText) return;
+        const styleEl = document.getElementById('vuc-custom-styles');
+        if (!styleEl) return;
+        const sheet = styleEl.sheet;
+
+        // Use a temp style tag to parse the CSS
+        const tempStyle = document.createElement('style');
+        tempStyle.textContent = cssText;
+        document.body.appendChild(tempStyle);
+        
+        try {
+            const tempSheet = tempStyle.sheet;
+            for (let i = 0; i < tempSheet.cssRules.length; i++) {
+                const rule = tempSheet.cssRules[i];
+                try {
+                    // Check for duplicate keyframes to avoid bloat
+                    if (rule.type === CSSRule.KEYFRAMES_RULE) {
+                        let exists = false;
+                        for (let j = 0; j < sheet.cssRules.length; j++) {
+                            if (sheet.cssRules[j].type === CSSRule.KEYFRAMES_RULE && 
+                                sheet.cssRules[j].name === rule.name) {
+                                exists = true;
+                                break;
+                            }
+                        }
+                        if (exists) {
+                            console.log(`Skipping duplicate keyframe: ${rule.name}`);
+                            continue;
+                        }
+                    }
+
+                    sheet.insertRule(rule.cssText, sheet.cssRules.length);
+                } catch(e) {
+                    console.error("Error importing rule:", rule.cssText, e);
+                }
+            }
+        } catch(e) {
+            console.error("Error parsing imported CSS", e);
+        } finally {
+            document.body.removeChild(tempStyle);
+        }
     },
 
     getJSForElement: function(el) {
@@ -1827,6 +2292,22 @@ Views:
         });
     },
 
+    downloadSavedBlock: function(id) {
+        const block = this.savedBlocks.find(b => b.id === id);
+        if (!block) return;
+
+        const content = `<!-- Component: ${block.name} -->\n<style>\n${block.css || ''}\n</style>\n${block.html}\n<script>\n${block.js || ''}\n</script>`;
+        const blob = new Blob([content], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${block.name.replace(/\s+/g, '_')}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
     saveBlocksToStorage: function() {
         localStorage.setItem('vuc_saved_blocks', JSON.stringify(this.savedBlocks));
     },
@@ -1855,7 +2336,10 @@ Views:
             item.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
                     <span><i class="fas fa-cube"></i> ${block.name}</span>
-                    <i class="fas fa-trash" style="color:#666; font-size:10px; cursor:pointer;" onclick="event.stopPropagation(); App.deleteSavedBlock('${block.id}')"></i>
+                    <div style="display:flex; gap:5px;">
+                        <i class="fas fa-download" style="color:#666; font-size:10px; cursor:pointer;" onclick="event.stopPropagation(); App.downloadSavedBlock('${block.id}')" title="Download HTML"></i>
+                        <i class="fas fa-trash" style="color:#666; font-size:10px; cursor:pointer;" onclick="event.stopPropagation(); App.deleteSavedBlock('${block.id}')" title="Delete"></i>
+                    </div>
                 </div>
             `;
 
@@ -5275,6 +5759,88 @@ if (${selector}) {
         container.appendChild(mLayer);
     },
 
+    addStyleRule: function(selector, styles) {
+        if (!selector || !styles || Object.keys(styles).length === 0) return;
+
+        // Scope to preview canvas
+        const scopedSelector = '#preview-canvas ' + selector;
+
+        let styleEl = document.getElementById('vuc-custom-styles');
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'vuc-custom-styles';
+            document.head.appendChild(styleEl);
+        }
+
+        const sheet = styleEl.sheet;
+        let rule = null;
+        let rulesList = sheet.cssRules;
+        let insertIndex = sheet.cssRules.length;
+
+        // Search for existing rule
+        for (let i = rulesList.length - 1; i >= 0; i--) {
+            if (rulesList[i].selectorText === scopedSelector) {
+                rule = rulesList[i];
+                break;
+            }
+        }
+
+        if (!rule) {
+            try {
+                const idx = sheet.insertRule(`${scopedSelector} {}`, insertIndex);
+                rule = rulesList[idx];
+            } catch(e) {
+                console.error("Invalid selector:", scopedSelector);
+                return;
+            }
+        }
+
+        // Apply styles
+        for (const [prop, value] of Object.entries(styles)) {
+            rule.style[prop] = value;
+        }
+        
+        // No updateCode/saveState here as it might be called in a loop or batch. 
+        // Caller should handle state saving if needed, or we can add it.
+        // But for Builder.createElement, we want to save once at the end.
+    },
+
+    duplicateStyleRule: function(oldId, newId) {
+        if (!oldId || !newId) return;
+        const oldSelector = '#preview-canvas #' + oldId;
+        const newSelector = '#preview-canvas #' + newId;
+        
+        const styleEl = document.getElementById('vuc-custom-styles');
+        if (!styleEl) return;
+        const sheet = styleEl.sheet;
+        
+        const processRules = (rules, parent) => {
+            const matches = [];
+            for (let i = 0; i < rules.length; i++) {
+                const rule = rules[i];
+                if (rule.type === CSSRule.STYLE_RULE && rule.selectorText === oldSelector) {
+                    matches.push({ rule: rule, index: i, parent: parent });
+                } else if (rule.type === CSSRule.MEDIA_RULE) {
+                    processRules(rule.cssRules, rule);
+                }
+            }
+            
+            matches.sort((a, b) => b.index - a.index);
+            
+            matches.forEach(match => {
+                const styleText = match.rule.style.cssText;
+                const newRuleText = `${newSelector} { ${styleText} }`;
+                try {
+                    match.parent.insertRule(newRuleText, match.index + 1);
+                } catch (e) {
+                    console.error('Failed to duplicate rule', e);
+                }
+            });
+        };
+        
+        processRules(sheet.cssRules, sheet);
+    },
+
     applyStyle: function(prop, value) {
         const el = Builder.selectedElement;
         if (!el) return;
@@ -5365,7 +5931,6 @@ if (${selector}) {
             }
 
             rule.style[prop] = value;
-        }
 
         this.updateCode();
         this.saveState();
@@ -5423,7 +5988,6 @@ if (${selector}) {
                  }
              }
              return '';
-         }
     },
 
     updatePropertyInspector: function(el) {
@@ -5610,6 +6174,13 @@ if (${selector}) {
         row3.style.gap = '5px';
         row3.style.marginTop = '5px';
 
+        const saveBlockBtn = document.createElement('button');
+        saveBlockBtn.className = 'small-btn';
+        saveBlockBtn.innerHTML = '<i class="fas fa-cube"></i> Save Block';
+        saveBlockBtn.title = 'Save as Component Block';
+        saveBlockBtn.style.flex = '1';
+        saveBlockBtn.onclick = () => this.saveCurrentBlock();
+
         const importBtn = document.createElement('button');
         importBtn.className = 'small-btn';
         importBtn.innerHTML = '<i class="fas fa-file-import"></i> Import JS';
@@ -5624,6 +6195,7 @@ if (${selector}) {
         exportBtn.style.flex = '1';
         exportBtn.onclick = () => this.showExportToJSModal(el);
 
+        row3.appendChild(saveBlockBtn);
         row3.appendChild(importBtn);
         row3.appendChild(exportBtn);
         drawerContent.appendChild(row3);
